@@ -37,7 +37,6 @@ using RAWSimO.Core.Remote;
 using RAWSimO.CommFramework;
 using RAWSimO.Core.Statistics;
 using RAWSimO.DataPreparation;
-using RAWSimO.Toolbox;
 
 namespace RAWSimO.Visualization
 {

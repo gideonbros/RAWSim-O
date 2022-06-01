@@ -1,4 +1,5 @@
-﻿using RAWSimO.Core.Configurations;
+﻿﻿using RAWSimO.Core.Configurations;
+using RAWSimO.Core.Management;
 using RAWSimO.Core.Control.Defaults.ItemStorage;
 using RAWSimO.Core.Control.Defaults.MethodManagement;
 using RAWSimO.Core.Control.Defaults.OrderBatching;
@@ -10,6 +11,14 @@ using RAWSimO.Core.Control.Defaults.StationActivation;
 using RAWSimO.Core.Control.Defaults.TaskAllocation;
 using System;
 using System.Linq;
+using RAWSimO.Core.Control.Filters;
+
+using System.Threading.Tasks;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Collections.Generic;
+using System.Text;
+using Newtonsoft.Json;
 
 namespace RAWSimO.Core.Control
 {
@@ -42,6 +51,7 @@ namespace RAWSimO.Core.Control
             // Init bot manager
             switch (instance.ControllerConfig.TaskAllocationConfig.GetMethodType())
             {
+                case TaskAllocationMethodType.Dummy: BotManager = new DummyBotManager(instance); break;
                 case TaskAllocationMethodType.BruteForce: BotManager = new BruteForceBotManager(instance); break;
                 case TaskAllocationMethodType.Random: BotManager = new RandomBotManager(instance); break;
                 case TaskAllocationMethodType.Balanced: BotManager = new BalancedBotManager(instance); break;
@@ -98,6 +108,7 @@ namespace RAWSimO.Core.Control
             // Init order batching manager
             switch (instance.ControllerConfig.OrderBatchingConfig.GetMethodType())
             {
+                case OrderBatchingMethodType.Greedy: OrderManager = new GreedyOrderManager(instance); break;
                 case OrderBatchingMethodType.Default: OrderManager = new DefaultOrderManager(instance); break;
                 case OrderBatchingMethodType.Random: OrderManager = new RandomOrderManager(instance); break;
                 case OrderBatchingMethodType.Workload: OrderManager = new WorkloadOrderManager(instance); break;
@@ -107,6 +118,7 @@ namespace RAWSimO.Core.Control
                 case OrderBatchingMethodType.PodMatching: OrderManager = new PodMatchingOrderManager(instance); break;
                 case OrderBatchingMethodType.LinesInCommon: OrderManager = new LinesInCommonOrderManager(instance); break;
                 case OrderBatchingMethodType.Queue: OrderManager = new QueueOrderManager(instance); break;
+                case OrderBatchingMethodType.Remote: OrderManager = new RemoteOrderManager(instance); break;
                 default: throw new ArgumentException("Unknown order manager: " + instance.ControllerConfig.OrderBatchingConfig.GetMethodType());
             }
             // Init replenishment batching manger
@@ -126,6 +138,27 @@ namespace RAWSimO.Core.Control
             }
             // Init allocator
             Allocator = new Allocator(instance);
+            //Init Mate scheduler
+            if (Instance.SettingConfig.SeeOffMateScheduling)
+            {
+                MateScheduler = new SeeOffMateScheduler(instance, instance.SettingConfig.MateSchedulerLoggerPath);
+            }
+            else if (Instance.SettingConfig.WaveEnabled)
+            {
+                MateScheduler = new WaveMateScheduler(instance, instance.SettingConfig.MateSchedulerLoggerPath);
+            }
+            else if  (Instance.SettingConfig.HungarianMateScheduling)
+            {
+                MateScheduler = new HungarianMateScheduler(instance, instance.SettingConfig.MateSchedulerLoggerPath);
+            }
+            else
+            {
+                MateScheduler = new MateScheduler(instance, instance.SettingConfig.MateSchedulerLoggerPath);
+            }
+            
+            //Init statistics manager
+            StatisticsManager = new StatisticsManager(instance);
+
         }
 
         /// <summary>
@@ -172,11 +205,14 @@ namespace RAWSimO.Core.Control
         /// The allocator.
         /// </summary>
         public Allocator Allocator { get; private set; }
-
         /// <summary>
-        /// The current time.
+        /// The mate scheduler
         /// </summary>
-        private double _currentTime = 0.0;
+        public MateScheduler MateScheduler { get;  set; }
+        /// <summary>
+        /// The statistics manager
+        /// </summary>
+        public StatisticsManager StatisticsManager { get; set; }
 
         /// <summary>
         /// The time the simulation step is completed.
@@ -186,12 +222,12 @@ namespace RAWSimO.Core.Control
         /// <summary>
         /// The current time.
         /// </summary>
-        public double CurrentTime { get { return _currentTime; } }
+        public double CurrentTime { get; private set; } = 0.0;
 
         /// <summary>
         /// The progress of the simulation.
         /// </summary>
-        public double Progress { get { return _currentTime / (Instance.SettingConfig.SimulationWarmupTime + Instance.SettingConfig.SimulationDuration); } }
+        public double Progress { get { return CurrentTime / (Instance.SettingConfig.SimulationWarmupTime + Instance.SettingConfig.SimulationDuration); } }
 
         /// <summary>
         /// Used to wait for workers that are still busy. (In case we simulated faster than real-time)
@@ -212,40 +248,58 @@ namespace RAWSimO.Core.Control
         /// Moves the simulation forward by the specified amount of time.
         /// </summary>
         /// <param name="elapsedTime">The relative amount of time by which the simulation is forwarded.</param>
-        public void Update(double elapsedTime)
+        public void Update(double elapsedTime, double updateRate = 1)
         {
             // Don't want to update less than the time required for something to move past 1/3 of the tolerance in a given time interval
             // TODO this probably results in inaccurate timing statistics - is it necessary to change this? (minimum updatetime influences constant times of tasks - they are not constant anymore, because their finish event might be skipped)
             double minimumUpdateTime = Instance.SettingConfig.Tolerance / 3.0 / Instance.Bots.Max(b => b.MaxVelocity);
 
-            _updateFinishTime = _currentTime + elapsedTime;
-            while (_currentTime < _updateFinishTime)
+            for (var k = 0; k < updateRate; ++k)
             {
-                // --> Get the next event time
-                double nextTime =
-                    Math.Min(_updateFinishTime, // Stop after all time is elapsed
-                    Math.Min(MethodManager.GetNextEventTime(_currentTime), // Check the meta manager
-                    Instance.Updateables.Min(u => u.GetNextEventTime(_currentTime)))); // Jump to next event of all agents
+                _updateFinishTime = CurrentTime + elapsedTime;
+                while (CurrentTime < _updateFinishTime)
+                {
+                    //if order mode is fixed or fill and all the order have been completed, stop when all movable stations enter rest
+                    //or if we have manually set order count, stop at the reached count of completed orders
+                    if ((Instance.MovableStations.All(ms => ms.IsResting()) || Instance.SettingConfig.ManualOrderCountStopCondition) &&
+                        Instance.SettingConfig.OrderCountStopCondition == Instance.ItemManager.CompletedOrdersCount)
+                    {
+                        Instance.SettingConfig.StopCondition = true;
+                        return;
+                    }
+                    //if simulation time progress reaches 100%, return 
+                    if(Progress >= 1)
+                    {
+                        Instance.SettingConfig.StopCondition = true;
+                        return;
+                    }
 
-                // See if a potential collision will happen before the next event
-                double minTimeDelta = Math.Min(Instance.Compound.GetShortestTimeWithoutCollision(), nextTime - _currentTime);
-                minTimeDelta = Math.Max(minTimeDelta, minimumUpdateTime);	// Make sure update rate never gets too slow
+                    // --> Get the next event time
+                    double nextTime =
+                        Math.Min(_updateFinishTime, // Stop after all time is elapsed
+                        Math.Min(MethodManager.GetNextEventTime(CurrentTime), // Check the meta manager
+                        Instance.Updateables.Min(u => u.GetNextEventTime(CurrentTime)))); // Jump to next event of all agents
 
-                // Update by at least the minimum, but don't go past the next time
-                nextTime = Math.Min(_updateFinishTime, _currentTime + minTimeDelta);
+                    // See if a potential collision will happen before the next event
+                    double minTimeDelta = Math.Min(Instance.Compound.GetShortestTimeWithoutCollision(), nextTime - CurrentTime);
+                    minTimeDelta = Math.Max(minTimeDelta, minimumUpdateTime);	// Make sure update rate never gets too slow
 
-                // Wait for unfinished optimization workers
-                WaitForUnfinishedWorker(nextTime);
+                    // Update by at least the minimum, but don't go past the next time
+                    nextTime = Math.Min(_updateFinishTime, CurrentTime + minTimeDelta);
 
-                // --> Run up til the next event
-                // Update method manager (needs to be updated first, because it might change the update-list)
-                MethodManager.Update(_currentTime, nextTime);
-                // Update all agents in the list
-                foreach (var updateable in Instance.Updateables)
-                    updateable.Update(_currentTime, nextTime);
+                    // Wait for unfinished optimization workers
+                    WaitForUnfinishedWorker(nextTime);
 
-                // Set new time
-                _currentTime = nextTime;
+                    // --> Run up til the next event
+                    // Update method manager (needs to be updated first, because it might change the update-list)
+                    MethodManager.Update(CurrentTime, nextTime);
+                    // Update all agents in the list
+                    foreach (var updateable in Instance.Updateables)
+                        updateable.Update(CurrentTime, nextTime);
+
+                    // Set new time
+                    CurrentTime = nextTime;
+                }
             }
         }
 

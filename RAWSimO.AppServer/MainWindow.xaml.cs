@@ -81,7 +81,7 @@ namespace RAWSimO.AppServer
         }
 
         /// <summary>
-        /// Writes the current IP-Adress in the Title of the App
+        /// Writes the current IP-address in the Title of the App
         /// </summary>
         private void showIPAddress()
         {

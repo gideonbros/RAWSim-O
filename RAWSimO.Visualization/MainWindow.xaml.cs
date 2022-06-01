@@ -72,7 +72,7 @@ namespace RAWSimO.Visualization
             // Init some combobox content elements
             InitComboboxContent();
             // Set statistics output directory
-            TextStatisicsOutputFolder.Text = Directory.GetCurrentDirectory();
+            TextStatisicsOutputFolder.Text = @"";
             // Set current active remote button and image
             _remoteButton = ButtonConnectControl;
             _remoteImage = ImageConnectControl;
@@ -122,6 +122,11 @@ namespace RAWSimO.Visualization
         /// The simulation wrapper.
         /// </summary>
         SimulationVisualizer _renderer;
+        
+        /// <summary>
+        /// Indicated whether StartSimulation() has been called in this instance
+        /// </summary>
+        bool _firstCall = true;
 
         /// <summary>
         /// Indicates whether there is an active paused simulation.
@@ -345,6 +350,7 @@ namespace RAWSimO.Visualization
         private void FocusTierBelow() { if (_instance != null && _animationControl2D != null) { _focusedTierIndex = Math.Max(0, _focusedTierIndex - 1); UpdateFocusedTier(); } }
         private void StartSimulation()
         {
+            _firstCall = false;
             // Check whether there is an active simulation
             if (!_paused)
             {
@@ -548,7 +554,7 @@ namespace RAWSimO.Visualization
                 _instance.SettingConfig.InventoryConfiguration.ColoredWordConfiguration.WordFile =
                     IOHelper.FindResourceFile(_instance.SettingConfig.InventoryConfiguration.ColoredWordConfiguration.WordFile, ".");
             // Find the specified order-list file (just-in-case)
-            if (_instance.SettingConfig.InventoryConfiguration.FixedInventoryConfiguration != null)
+            if (_instance.SettingConfig.InventoryConfiguration.FixedInventoryConfiguration != null && _instance.SettingConfig.InventoryConfiguration.OrderMode == OrderMode.Fixed)
                 _instance.SettingConfig.InventoryConfiguration.FixedInventoryConfiguration.OrderFile =
                     IOHelper.FindResourceFile(_instance.SettingConfig.InventoryConfiguration.FixedInventoryConfiguration.OrderFile, ".");
             // Attach log-action
@@ -579,8 +585,12 @@ namespace RAWSimO.Visualization
                     _instance.SettingConfig.StatisticsDirectory = TextStatisicsOutputFolder.Text;
                     _instance.WriteStatistics();
                 }
+                
+                _instance.Controller.StatisticsManager.WriteStatisticsSummary(_instance.SettingConfig.StatisticsSummaryFile);
                 // Indicate stop
                 _running = false;
+                //reset stop condition
+                _instance.SettingConfig.StopCondition = false;
             });
         }
         private void SanityCheckAndShowInfo()
@@ -658,9 +668,12 @@ namespace RAWSimO.Visualization
                 case Key.NumPad3: SetSpeed(200); break;
                 case Key.D4:
                 case Key.NumPad4: SetSpeed(400); break;
-                case Key.Space: if (!_paused && _instance != null) PauseSimulation(); else StartSimulation(); break;
+                case Key.Space: if (!_paused && _instance != null && !_firstCall) PauseSimulation(); else StartSimulation(); break;
                 case Key.PageUp: FocusTierAbove(); break;
                 case Key.PageDown: FocusTierBelow(); break;
+                case Key.L: if (Keyboard.IsKeyDown(Key.LeftShift) || Keyboard.IsKeyDown(Key.RightShift)) ButtonSaveLayout_Click(sender, e); break;
+                case Key.S: if (Keyboard.IsKeyDown(Key.LeftShift) || Keyboard.IsKeyDown(Key.RightShift)) ButtonSaveSettingConfiguration_Click(sender, e); break;
+                case Key.C: if (Keyboard.IsKeyDown(Key.LeftShift) || Keyboard.IsKeyDown(Key.RightShift)) ButtonSaveControlConfiguration_Click(sender, e); break;
                 default: break;
             }
         }
@@ -742,6 +755,7 @@ namespace RAWSimO.Visualization
                     {
                         // Parse the instance
                         _instance = InstanceIO.ReadInstance(instanceDialog.FileName, settingDialog.FileName, configDialog.FileName, true, logAction: LogLine);
+                        if (_instance == null) return;
                         _instanceInvalidated = false;
                         // Show the instance
                         InitVisuals();
@@ -780,10 +794,40 @@ namespace RAWSimO.Visualization
             }
         }
 
+        // overrides settings configuration with data
+        private void OverrideSettingsConfigurationWithFile()
+        {
+            // overrides Fixed Inventory Configuration path to order file
+            _baseConfiguration.InventoryConfiguration.FixedInventoryConfiguration.OrderFile = _layoutConfig.warehouse.GetOrderFilePath();
+            _baseConfiguration.InventoryConfiguration.UseOrderBatching = _layoutConfig.warehouse.UseOrderBatching();
+            _baseConfiguration.InventoryConfiguration.AverageNumberOfOrders = _layoutConfig.warehouse.avg_batch_size;
+            _baseConfiguration.InventoryConfiguration.BatchingTimeInterval = _layoutConfig.warehouse.batch_time_interval;
+            _baseConfiguration.InventoryConfiguration.UsePoissonBatching = _layoutConfig.warehouse.poisson;
+            // few additional settings params
+            _baseConfiguration.ZonesEnabled = _layoutConfig.warehouse.UseZones();
+            _baseConfiguration.usingMapSortItems = _layoutConfig.warehouse.UsingPreferredCommissionOrder();
+            _baseConfiguration.SimulationDuration = _layoutConfig.warehouse.time_limit;
+            _baseConfiguration.UseConstantAssistDuration = _layoutConfig.warehouse.UseConstAssistTime();
+            _baseConfiguration.AssistDuration = _layoutConfig.warehouse.const_assist_time;
+            _baseConfiguration.SwitchPalletDuration = _layoutConfig.warehouse.switch_pallet_time;
+
+            _baseConfiguration.BotLocations = _layoutConfig.warehouse.GetSpawnLocationsType();
+            _baseConfiguration.LocationsFile = _layoutConfig.warehouse.GetSpawnLocationsFilePath();
+            _baseConfiguration.BotsSelfAssist = _layoutConfig.warehouse.bots_as_pickers;
+            //_baseConfiguration.ReserveSameAssistLocation = _layoutConfig.warehouse.reserve_same_loc;
+            //_baseConfiguration.ReserveNextAssistLocation = _layoutConfig.warehouse.reserve_next_loc;
+            // TODO add for zones
+        }
+
+
         private void ButtonSaveLayout_Click(object sender, RoutedEventArgs e)
         {
             // Parse the configuration
             ParseLayoutConfiguration();
+
+            if (_layoutConfig.OverrideDataWithFile)
+                // overrides layout configuration data
+                _layoutConfig.OverrideData();
 
             // Init save dialog
             SaveFileDialog dialog = new SaveFileDialog();
@@ -809,6 +853,9 @@ namespace RAWSimO.Visualization
             // Parse the configuration
             ParseSetting();
 
+            if (_layoutConfig.OverrideDataWithFile)
+                OverrideSettingsConfigurationWithFile();
+
             // Init save dialog
             SaveFileDialog dialog = new SaveFileDialog();
             dialog.FileName = _baseConfiguration.Name; // Default file name
@@ -820,9 +867,9 @@ namespace RAWSimO.Visualization
                 _baseConfiguration.InventoryConfiguration.ColoredWordConfiguration.WordFile =
                     System.IO.Path.GetFileName(_baseConfiguration.InventoryConfiguration.ColoredWordConfiguration.WordFile);
             // Remove directory information of order-list file
-            if (_baseConfiguration.InventoryConfiguration.FixedInventoryConfiguration != null)
-                _baseConfiguration.InventoryConfiguration.FixedInventoryConfiguration.OrderFile =
-                    System.IO.Path.GetFileName(_baseConfiguration.InventoryConfiguration.FixedInventoryConfiguration.OrderFile);
+            //if (_baseConfiguration.InventoryConfiguration.FixedInventoryConfiguration != null)
+            //    _baseConfiguration.InventoryConfiguration.FixedInventoryConfiguration.OrderFile =
+            //        System.IO.Path.GetFileName(_baseConfiguration.InventoryConfiguration.FixedInventoryConfiguration.OrderFile);
             // Remove directory information of simple-item file
             if (_baseConfiguration.InventoryConfiguration.SimpleItemConfiguration != null)
                 _baseConfiguration.InventoryConfiguration.SimpleItemConfiguration.GeneratorConfigFile =
@@ -977,6 +1024,7 @@ namespace RAWSimO.Visualization
 
         private void ButtonGenerateInstance_Click(object sender, RoutedEventArgs e)
         {
+            _firstCall = true;
             TextBoxOutput.Text = "";
             try
             {
@@ -985,12 +1033,19 @@ namespace RAWSimO.Visualization
                 ParseConfiguration();
                 ParseLayoutConfiguration();
 
+                // override data
+                if (_layoutConfig.OverrideDataWithFile)
+                {
+                    _layoutConfig.OverrideData();
+                    OverrideSettingsConfigurationWithFile();
+                }
+
                 // Find the specified word-list file
                 if (_baseConfiguration.InventoryConfiguration.ColoredWordConfiguration != null)
                     _baseConfiguration.InventoryConfiguration.ColoredWordConfiguration.WordFile =
                         IOHelper.FindResourceFile(_baseConfiguration.InventoryConfiguration.ColoredWordConfiguration.WordFile, ".");
                 // Find the specified order-list file
-                if (_baseConfiguration.InventoryConfiguration.FixedInventoryConfiguration != null)
+                if (_baseConfiguration.InventoryConfiguration.FixedInventoryConfiguration != null && _baseConfiguration.InventoryConfiguration.OrderMode == OrderMode.Fixed)
                     _baseConfiguration.InventoryConfiguration.FixedInventoryConfiguration.OrderFile =
                         IOHelper.FindResourceFile(_baseConfiguration.InventoryConfiguration.FixedInventoryConfiguration.OrderFile, ".");
                 // Find the specified generator-config file
@@ -1000,14 +1055,33 @@ namespace RAWSimO.Visualization
                 // Mark the attached visualization
                 _baseConfiguration.VisualizationAttached = true;
 
+                if (_baseConfiguration.Seed == -1) // Reset Randomizer when button for new instance is clicked and random seed is requested.
+                {
+                    RandomizerSimple.GlobalRandomSeed = -1;
+                    _baseConfiguration.Seed = RandomizerSimple.GetRandomSeed();
+                }
+                Order.ResetIDCounter();
+
+                //check validity of SettingsConfiguration
+                var valid = _baseConfiguration.CheckValidityOfPaths(out var errorMessage);
+                if(!valid)
+                {
+                    //write errorMessage
+                    MessageBox.Show(errorMessage, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+
                 // Generate
-                IRandomizer rand = new RandomizerSimple(0);
+                IRandomizer rand = new RandomizerSimple(_baseConfiguration.Seed);
                 _instance = InstanceGenerator.GenerateLayout(_layoutConfig, rand, _baseConfiguration, _controlConfiguration);
                 _instanceInvalidated = false;
                 _instance.Name = _instance.GetMetaInfoBasedInstanceName();
 
                 // Display
                 InitVisuals();
+
+                var tabControl = (TabControl) ((TabItem)((StackPanel)((StackPanel) ((Button) sender).Parent).Parent).Parent).Parent;
+                tabControl.SelectedIndex = 0;
             }
             catch (FormatException ex)
             {

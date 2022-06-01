@@ -4,7 +4,7 @@
         xmlns:local="clr-namespace:RAWSimO.Visualization"
         xmlns:HelixToolkit="clr-namespace:HelixToolkit.Wpf;assembly=HelixToolkit.Wpf"
         xmlns:ZoomControl="clr-namespace:RAWSimO.VisualToolbox;assembly=RAWSimO.VisualToolbox"
-        Title="RAWSimO" Height="800" Width="1000" Loaded="Window_Loaded" Closed="Window_Closed" Icon="bot.ico">
+        Title="RAWSimO" Height="800" Width="1000" Loaded="Window_Loaded" Closed="Window_Closed" Icon="bot.ico" WindowState="Maximized">
     <Grid>
         <!-- Resources of the grid like styles for the different controls -->
         <Grid.Resources>
@@ -97,31 +97,32 @@
             <!-- Basic controls with Viewport underneath (console at bottom) -->
             <ColumnDefinition Width="Auto" />
             <!-- Viewport underneath (console at bottom) -->
-            <ColumnDefinition Width="6*" />
+            <ColumnDefinition Width="56*" />
+            <ColumnDefinition Width="460*"/>
             <!-- Gridsplitter with viewport underneath -->
             <ColumnDefinition Width="Auto"/>
             <!-- Info panel with viewport underneath -->
-            <ColumnDefinition Width="1*"/>
+            <ColumnDefinition Width="461*"/>
         </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
             <!-- Basic controls with Viewport underneath -->
             <RowDefinition Height="Auto" />
             <!-- Viewport underneath -->
-            <RowDefinition Height="4*" />
+            <RowDefinition Height="10*" />
             <!-- Gridsplitter with Viewport underneath -->
             <RowDefinition Height="Auto" />
             <!-- Console with Viewport underneath -->
             <RowDefinition Height="1*" />
         </Grid.RowDefinitions>
         <!-- 3D-Viewport -->
-        <HelixToolkit:HelixViewport3D Grid.RowSpan="4" Grid.ColumnSpan="4" Name="Viewport3D" Visibility="Hidden" ClipToBounds="False">
+        <HelixToolkit:HelixViewport3D Grid.RowSpan="4" Grid.ColumnSpan="5" Name="Viewport3D" Visibility="Hidden" ClipToBounds="False">
         </HelixToolkit:HelixViewport3D>
         <!-- 2D-Viewport -->
-        <ScrollViewer Grid.Column="0" Grid.RowSpan="4" Grid.ColumnSpan="4" Name="scroller" CanContentScroll="True" VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled">
+        <ScrollViewer Grid.Column="1" Grid.Row="1" Grid.RowSpan="1" Grid.ColumnSpan="3" Name="scroller" CanContentScroll="True" VerticalScrollBarVisibility="Visible" HorizontalScrollBarVisibility="Visible">
             <!-- This is the control that handles zooming and panning. -->
             <ZoomControl:ZoomAndPanControl Name="zoomAndPanControl" Background="LightGray" MouseDown="ZoomControl_MouseDown" MouseUp="ZoomControl_MouseUp" MouseMove="ZoomControl_MouseMove" MouseWheel="ZoomControl_MouseWheel" MouseDoubleClick="ZoomControl_MouseDoubleClick">
                 <!-- This is the content that is displayed. -->
-                <Grid Name="theGrid" Width="1000" Height="1000">
+                <Grid Name="theGrid" Width="800" Height="550">
                     <!-- This Canvas is the main part of the content that is displayed. -->
                     <Canvas Name="content" Background="White">
                     </Canvas>
@@ -133,7 +134,7 @@
             </ZoomControl:ZoomAndPanControl>
         </ScrollViewer>
         <!-- Container for the control panel and the info panel -->
-        <Grid Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2">
+        <Grid Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3">
             <Grid.ColumnDefinitions>
                 <!-- Basic controls with Viewport underneath -->
                 <ColumnDefinition Width="Auto" />
@@ -152,7 +153,7 @@
                 </StackPanel>
                 <StackPanel Style="{StaticResource StyleInfoPanelStack}" ToolTip="The current update-speed used for simulation">
                     <TextBlock Style="{StaticResource StyleInfoPanelTextBlock}" Text="Speed:"/>
-                    <TextBlock Style="{StaticResource StyleInfoPanelTextBlock}" Name="TextBlockUpdateSpeed" Text="1"/>
+                    <TextBlock Style="{StaticResource StyleInfoPanelTextBlock}" Name="TextBlockUpdateSpeed" Text="30"/>
                 </StackPanel>
                 <StackPanel Style="{StaticResource StyleInfoPanelStack}" ToolTip="The current tier that is visualized">
                     <TextBlock Style="{StaticResource StyleInfoPanelTextBlock}" Text="Tier:"/>
@@ -160,7 +161,7 @@
                 </StackPanel>
             </StackPanel>
             <!-- Controls -->
-            <TabControl Grid.Row="0" Grid.Column="0" TabStripPlacement="Top" Margin="2">
+            <TabControl Grid.Row="0" Grid.Column="0" TabStripPlacement="Top" Margin="2" SelectedIndex="1">
                 <!-- Base controls -->
                 <TabItem Name="TabBaseControls" Header="Base Controls" ToolTip="Execute showcases and single jobs">
                     <WrapPanel Orientation="Horizontal">
@@ -396,6 +397,8 @@
                                     <TextBox Style="{StaticResource StyleInputBox}" Width="200" Text="" Name="TextStatisicsOutputFolder" IsReadOnly="False"/>
                                     <Button Width="40" Click="SetStatisticalOutputFolder">...</Button>
                                 </StackPanel>
+                                <StackPanel Orientation="Horizontal" ToolTip="Specifies whether to output statistic summarys"/>
+                                <StackPanel Orientation="Horizontal" ToolTip="Specifies where to write the statistics summary"/>
                             </StackPanel>
                         </GroupBox>
                         <GroupBox Header="Heatmaps" ToolTip="Tools to render heatmap based information">
@@ -571,12 +574,12 @@
             </TabControl>
         </Grid>
         <!-- Gridsplitter -->
-        <GridSplitter Name="GridSplitterInfoPanel"  Grid.Column="2" Grid.RowSpan="4" HorizontalAlignment="Left" VerticalAlignment="Stretch" ShowsPreview="true" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Width="5" Visibility="Visible"/>
+        <GridSplitter Name="GridSplitterInfoPanel"  Grid.Column="3" Grid.RowSpan="4" HorizontalAlignment="Left" VerticalAlignment="Stretch" ShowsPreview="true" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Width="5" Visibility="Visible"/>
         <!-- Info panel -->
-        <TreeView Name="TreeViewInfoPanel" Grid.Column="3" Grid.RowSpan="4" Style="{StaticResource StyleInfoTreeView}" Visibility="Visible"/>
+        <TreeView Name="TreeViewInfoPanel" Grid.Column="4" Grid.RowSpan="4" Style="{StaticResource StyleInfoTreeView}" Visibility="Visible"/>
         <!-- Gridsplitter -->
-        <GridSplitter Name="GridSplitterBoxOutput"  Grid.Row="2" Grid.ColumnSpan="3" HorizontalAlignment="Stretch" VerticalAlignment="Top" ShowsPreview="true" ResizeDirection="Rows" ResizeBehavior="PreviousAndNext" Height="5" Visibility="Visible"/>
+        <GridSplitter Name="GridSplitterBoxOutput"  Grid.Row="2" Grid.ColumnSpan="4" HorizontalAlignment="Stretch" VerticalAlignment="Top" ShowsPreview="true" ResizeDirection="Rows" ResizeBehavior="PreviousAndNext" Height="5" Visibility="Visible"/>
         <!-- Log-Box -->
-        <TextBox Name="TextBoxOutput" Grid.Row="3" Grid.ColumnSpan="3" Style="{StaticResource StyleOutputBox}" ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Auto" FontFamily="Consolas" IsReadOnly="True" Visibility="Visible"/>
+        <TextBox Name="TextBoxOutput" Grid.Row="3" Grid.ColumnSpan="4" Style="{StaticResource StyleOutputBox}" ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Auto" FontFamily="Consolas" IsReadOnly="True" Visibility="Visible"/>
     </Grid>
 </Window>

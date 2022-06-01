@@ -54,7 +54,7 @@ namespace RAWSimO.Playground
                     break;
                 case '3': { ClusterHelper.FetchResultsFromCluster(); } break;
                 case '4': { ClusterHelper.FetchOutputFilesFromCluster(); } break;
-                case '5': { InstanceGenerators.GenerateMaTiInstances(); } break;
+                case '5': { } break;
                 case '6': { ConfigGenerators.GenerateRotterdamControllers(); } break;
                 case '7': { SettingGenerator.GenerateRotterdamMark2Set(); } break;
                 case '8': { ExecuteInstances(); } break;
@@ -145,7 +145,7 @@ namespace RAWSimO.Playground
             }
             // Choose seed
             Console.WriteLine("Choose seed:");
-            int seed = 0;
+            int seed = -1;
             try
             {
                 // Get the seed

@@ -105,6 +105,22 @@ namespace RAWSimO.MultiAgentPathFinding.Elements
         /// The next node object of the bot.
         /// </summary>
         public object NextNodeObject;
+        /// <summary>
+        /// Indicates wether agent is MateBot
+        /// </summary>
+        public bool IsMate;
+        /// <summary>
+        /// If true the bots can drive through each other and perform path planning individually
+        /// </summary>
+        public bool DimensionlessBots;
+        /// <summary>
+        /// Ignore the input pallet stand queue - avoid being pushed towards the pallet stand
+        /// </summary>
+        public bool IgnoreInputPalletStandQueue = true;
+        /// <summary>
+        /// Ignore the output pallet stand queue - avoid being pushed towards the pallet stand
+        /// </summary>
+        public bool IgnoreOutputPalletStandQueue = true;
 
         #endregion
     }

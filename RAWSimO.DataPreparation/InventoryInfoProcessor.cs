@@ -25,7 +25,7 @@ namespace RAWSimO.DataPreparation
             int groupCount = 10;
             // Parse the given file
             Console.WriteLine("Parsing generator config ...");
-            SimpleItemGeneratorConfiguration config = InstanceIO.ReadSimpleItemGeneratorConfig(filepath);
+            SimpleItemGeneratorConfiguration config = null;// InstanceIO.ReadSimpleItemGeneratorConfig(filepath, Instance);
             string outputBasename = config.Name;
             string frequencyFilename = config.Name;
             string directory = Path.GetDirectoryName(filepath);

@@ -39,6 +39,8 @@ namespace RAWSimO.Core.Bots
 
         #region DynamicAttributes
 
+        public override BotType Type => BotType.BotHazzard;
+
         /// <summary>
         /// The bot's targeted velocity regarding the x-dimension.
         /// </summary>
@@ -357,6 +359,11 @@ namespace RAWSimO.Core.Bots
                 (_stateQueue.First() as BotMove).LogUnfinishedTrip(this);
         }
 
+        internal override Waypoint GetLocationAfter(int NrRegisteredLocations)
+        {
+            //implementing BotHazard? Ain't nobody got for that! 
+            throw new NotImplementedException();
+        }
         #endregion
 
         #region internal class
@@ -901,7 +908,7 @@ namespace RAWSimO.Core.Bots
                 StatTotalTimeMoving += timeDelta;
             // Measure queueing time
             if (IsQueueing)
-                StatTotalTimeQueueing += timeDelta;
+                StatTotalTimeQueuing += timeDelta;
 
             // Set moving flags
             if (XVelocity == 0.0 && YVelocity == 0.0)
@@ -926,7 +933,22 @@ namespace RAWSimO.Core.Bots
         #endregion
 
         #region IBotInfo Members
+        public override int GetInfoPodLocationID(int approachID)
+        {
+            var task = (MultiPointGatherTask)CurrentTask;
+            Waypoint podLocation = task.PodLocations[task.Locations.FindIndex(l => l.ID == approachID)];
+            return podLocation.ID;
+        }
+        public override Tuple<string, int> GetCurrentItemAddressAndMate()
+        {
 
+            Tuple<string, int> addressAndMate = Instance.Controller.MateScheduler.itemTable[ID].GetFirstAssignment();
+            return addressAndMate;
+        }
+        public override List<Tuple<string, bool, int, bool>> GetStatus()
+        {
+            return Instance.Controller.MateScheduler.itemTable[ID].GetStatus();
+        }
         /// <summary>
         /// Gets the x-position of the goal of the bot.
         /// </summary>
@@ -976,6 +998,11 @@ namespace RAWSimO.Core.Bots
         /// </summary>
         /// <returns><code>true</code> if the robot is blocked, <code>false</code> otherwise.</returns>
         public override bool GetInfoBlocked() { return Instance.Controller.CurrentTime < BlockedUntil; }
+        /// <summary>
+        /// The time until the bot is blocked.
+        /// </summary>
+        /// <returns>The time until the bot is blocked.</returns>
+        public override double GetInfoBlockedLoopFrequency() { return BlockedLoopFrequencey; }
         /// <summary>
         /// The time until the bot is blocked.
         /// </summary>
@@ -1069,7 +1096,7 @@ namespace RAWSimO.Core.Bots
             private bool _initialized = false;
             private bool _executed = false;
             public BotPickupPod(Pod b) { _pod = b; _waypoint = _pod.Waypoint; }
-            public Waypoint DestinationWaypoint { get { return _waypoint; } }
+            public Waypoint DestinationWaypoint { get { return _waypoint; } set { _waypoint = value; } }
             public void Act(Bot self, double lastTime, double currentTime)
             {
                 BotHazard driver = self as BotHazard;
@@ -1111,7 +1138,7 @@ namespace RAWSimO.Core.Bots
             private bool _initialized = false;
             private bool _executed = false;
             public BotSetdownPod(Waypoint w) { _waypoint = w; }
-            public Waypoint DestinationWaypoint { get { return _waypoint; } }
+            public Waypoint DestinationWaypoint { get { return _waypoint; } set { _waypoint = value; } }
             public void Act(Bot self, double lastTime, double currentTime)
             {
                 BotHazard driver = self as BotHazard;
@@ -1160,7 +1187,7 @@ namespace RAWSimO.Core.Bots
             private bool _initialized = false;
             private bool alreadyRequested = false;
             public BotGetItems(InsertTask storeTask) { _storeTask = storeTask; _waypoint = _storeTask.InputStation.Waypoint; }
-            public Waypoint DestinationWaypoint { get { return _waypoint; } }
+            public Waypoint DestinationWaypoint { get { return _waypoint; } set { _waypoint = value; } }
             public void Act(Bot self, double lastTime, double currentTime)
             {
                 BotHazard driver = self as BotHazard;
@@ -1255,7 +1282,7 @@ namespace RAWSimO.Core.Bots
             bool alreadyRequested = false;
             public BotPutItems(ExtractTask extractTask)
             { _extractTask = extractTask; _waypoint = _extractTask.OutputStation.Waypoint; }
-            public Waypoint DestinationWaypoint { get { return _waypoint; } }
+            public Waypoint DestinationWaypoint { get { return _waypoint; } set { _waypoint = value; } }
             public void Act(Bot self, double lastTime, double currentTime)
             {
                 BotHazard driver = self as BotHazard;
@@ -1353,7 +1380,7 @@ namespace RAWSimO.Core.Bots
             private Waypoint _waypoint;
             private bool _initialized = false;
             public BotRest(Waypoint waypoint) { _waypoint = waypoint; }
-            public Waypoint DestinationWaypoint { get { return _waypoint; } }
+            public Waypoint DestinationWaypoint { get { return _waypoint; } set { _waypoint = value; } }
 
             #region IBotState Members
 
@@ -1402,7 +1429,7 @@ namespace RAWSimO.Core.Bots
             /// </summary>
             private bool _initialized;
             internal double moveToX, moveToY;
-            public Waypoint DestinationWaypoint { get; private set; }
+            public Waypoint DestinationWaypoint { get;  set; }
             private WaypointSearchResult _currentRoute;
             public BotMove(BotHazard driver, double x, double y) { _driver = driver; DestinationWaypoint = null; _driver.CurrentWaypoint = null; moveToX = x; moveToY = y; }
             public BotMove(BotHazard driver, Waypoint w) { _driver = driver; DestinationWaypoint = w; moveToX = (w != null) ? w.X : _driver.X; moveToY = (w != null) ? w.Y : _driver.Y; }
@@ -1753,7 +1780,7 @@ namespace RAWSimO.Core.Bots
             private bool _initialized = false;
 
             public BotEvade(BotHazard driver) { _driver = driver; }
-            public Waypoint DestinationWaypoint { get; private set; }
+            public Waypoint DestinationWaypoint { get;  set; }
             public void Act(Bot self, double lastTime, double currentTime)
             {
                 // Initialize
@@ -1824,6 +1851,16 @@ namespace RAWSimO.Core.Bots
         /// </summary>
         /// <exception cref="System.NotImplementedException"></exception>
         public override void OnSetDownPod()
+        {
+            throw new NotImplementedException();
+        }
+
+        public override void OnAbortingTaskAsigned()
+        {
+            throw new NotImplementedException();
+        }
+
+        public override void OnAssistantAssigned()
         {
             throw new NotImplementedException();
         }

@@ -2,6 +2,7 @@
 using RAWSimO.Core.Configurations;
 using RAWSimO.Core.Control;
 using RAWSimO.Core.Control.Defaults.TaskAllocation;
+using RAWSimO.Core.Control.Filters;
 using RAWSimO.Core.Control.Shared;
 using RAWSimO.Core.Elements;
 using RAWSimO.Core.Info;
@@ -14,8 +15,8 @@ using RAWSimO.Core.Statistics;
 using RAWSimO.Core.Waypoints;
 using RAWSimO.Toolbox;
 using System;
-using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 
@@ -35,7 +36,8 @@ namespace RAWSimO.Core
         /// <summary>
         /// The randomizer instance used throughout the simulation.
         /// </summary>
-        public IRandomizer Randomizer { get; set; }
+        public IRandomizer Randomizer { get { return _randomizer; } set { _randomizer = value; EnumerableExtensions.Random = new Random(value.Seed()); } }
+        private IRandomizer _randomizer;
 
         /// <summary>
         /// The waypoint-graph containing all waypoints.
@@ -46,6 +48,7 @@ namespace RAWSimO.Core
         /// Keeps track of potential collisions and checks whether they were problematic or just a cause of the asynchronous update of the robots.
         /// </summary>
         internal BotCrashHandler BotCrashHandler { get; set; }
+
 
         /// <summary>
         /// Manages certain resources like pods in use and available storage positions.
@@ -139,6 +142,9 @@ namespace RAWSimO.Core
                     _updateables.AddRange(InputStations);
                     _updateables.AddRange(OutputStations);
                     _updateables.Add(BotCrashHandler);
+                    if (!SettingConfig.BotsSelfAssist)
+                        _updateables.Add(Controller.MateScheduler);
+                    _updateables.Add(Controller.StatisticsManager);
                 }
                 return _updateables;
             }
@@ -152,7 +158,23 @@ namespace RAWSimO.Core
         /// <summary>
         /// Stores the current time as the reference time for the finish of the execution.
         /// </summary>
-        public void StopExecutionTiming() { SettingConfig.StopTime = DateTime.Now; StopAsyncLogger(); }
+        public void StopExecutionTiming() 
+        { 
+            SettingConfig.StopTime = DateTime.Now; 
+            StopAsyncLogger();
+
+            var writer = new StreamWriter($"{CreatedAtString}.schedule");
+            foreach(var bot in this.MovableStations)
+            {
+                writer.Write($"{bot.ID} ");
+                foreach(var order in bot.GetInfoCompletedOrders())
+                {
+                    writer.Write($"{order.ID} ");
+                }
+                writer.WriteLine();
+            }
+            writer.Close();
+        }
 
         /// <summary>
         /// Returns a simple instance describing name.
@@ -440,6 +462,11 @@ namespace RAWSimO.Core
         /// </summary>
         public double StraightOrientationTolerance { get; private set; } = 0.174533;
 
+        /// <summary>
+        /// Reference to LayoutConfiguration
+        /// </summary>
+        public LayoutConfiguration layoutConfiguration { get; internal set; }
+
         #endregion
 
         #region IInstanceInfo Members
@@ -454,6 +481,70 @@ namespace RAWSimO.Core
         /// </summary>
         /// <returns>All bots of this instance.</returns>
         public IEnumerable<IBotInfo> GetInfoBots() { return Bots; }
+
+        public IEnumerable<IBotInfo> GetInfoMovableStations() { return Bots.Where(b => b is MovableStation); }
+
+        public IEnumerable<IBotInfo> GetInfoMates() { return Bots.Where(b => b is MateBot); }
+        public List<IBotInfo> GetInfoMatesNeedingAssignment() { return Controller.MateScheduler.GetLastUnassignedMates().ToList<IBotInfo>(); }
+
+        Dictionary<int, List<string>> locationAddressDictionary = new Dictionary<int, List<string>>();
+
+        public void AddInfoLocationAddress(int location, string address)
+        {
+            if (!locationAddressDictionary.ContainsKey(location))
+                locationAddressDictionary.Add(location, new List<string>());
+            locationAddressDictionary[location].Add(address);
+        }
+        public string GetInfoAddressesForLocation(int ID) { return locationAddressDictionary[ID].First(); }
+
+        public int GetStatusTableOrderID(int botID)
+        {
+           return Controller.MateScheduler.itemTable[botID].GetOrderID();
+        }
+        public List<string> GetStatusTableOrderAddresses(int botID)
+        {
+            return Controller.MateScheduler.itemTable[botID].GetOrderAddresses();
+        }
+        public Tuple<bool, int, bool, bool> GetStatusTableInfoOnItem(int botID, int itemIndex)
+        {
+            return Controller.MateScheduler.itemTable[botID].GetInfoOnItem(itemIndex);
+        }
+        public double GetInfoBotHue(int botID)
+        {
+            return GetBotByID(botID).GetInfoHue();
+        }
+
+        /// <summary>
+        /// Get the picker assigned to this address
+        /// </summary>
+        /// <param name="address"></param>
+        /// <returns>
+        /// Address can be either locked or free.<br/>
+        ///     IF locked, return the mate ID that is assigned to the robot
+        ///     that locks the address OR 0 if no mate is assigned<br/>
+        ///     ELSE, return the mate ID of the last assigned mate to this
+        ///     free address
+        /// </returns>
+        public int GetColorKeyForPodAddress(string address)
+        {
+            int botID = GetPodLockedForAddress(address);
+            // check if somebody locked and that the assignment table has already been updated
+            if (botID != -1 && Controller.MateScheduler.itemTable[botID].assignment.ContainsKey(address))
+            {
+                int mateID = Controller.MateScheduler.itemTable[botID].assignment[address].Last.Value;
+                return mateID; 
+            }
+            return MateScheduler.BotOrderInfo.GetPodColorKey(address);
+        }
+        /// <summary>
+        /// Get robot ID that currently locks the address
+        /// </summary>
+        /// <param name="address"></param>
+        /// <returns>-1 if address is not locked, otherwise robot ID (0,1,2,...)</returns>
+        public int GetPodLockedForAddress(string address)
+        {
+            return MateScheduler.BotOrderInfo.GetPodLocked(address);
+        }
         /// <summary>
         /// Returns an enumeration of all tiers of this instance.
         /// </summary>
@@ -528,9 +619,35 @@ namespace RAWSimO.Core
         /// Returns the current name of the instance.
         /// </summary>
         /// <returns>The name of the instance.</returns>
-        public string GetInfoName() { return Name; }
+        public string GetInfoName() => Name;
+        /// <summary>
+        /// Returns current Wave filter used
+        /// </summary>
+        /// <returns></returns>
+        public WideWave GetInfoWave() => Controller.MateScheduler is WaveMateScheduler ? (Controller.MateScheduler as WaveMateScheduler).Wave : null;
 
+        /// <summary>
+        /// Returns waypoint/cell width
+        /// </summary>
+        /// <returns></returns>
+        public double GetInfoCellWidth() { return layoutConfiguration.HorizontalWaypointDistance; }
+        /// <summary>
+        /// Returns waypoint&/cell height
+        /// </summary>
+        /// <returns></returns>
+        public double GetInfoCellHeight() { return layoutConfiguration.VerticalWaypointDistance; }
         #endregion
+
+        public int GetRowFromY(double y)
+        {
+            int row = (int)Math.Round((y - GetInfoCellHeight() / 2) / GetInfoCellHeight()) + 1;
+            return row;
+        }
+        public int GetColFromX(double x)
+        {
+            int col = (int)Math.Round((x - GetInfoCellWidth() / 2) / GetInfoCellWidth()) + 1;
+            return col;
+        }
 
         #region ID referencing
 
@@ -562,6 +679,16 @@ namespace RAWSimO.Core
         /// Stores the corresponding elements by their ID.
         /// </summary>
         private Dictionary<int, InputStation> _idToInputStations = new Dictionary<int, InputStation>();
+
+        /// <summary>
+        /// Stores the corresponding elements by their ID.
+        /// </summary>
+        private Dictionary<int, InputPalletStand> _idToInputPalletStands = new Dictionary<int, InputPalletStand>();
+
+        /// <summary>
+        /// Stores the corresponding elements by their ID
+        /// </summary>
+        private Dictionary<int, OutputPalletStand> _idToOutputPalletStands = new Dictionary<int, OutputPalletStand>();
 
         /// <summary>
         /// Gets the corresponding element by ID.

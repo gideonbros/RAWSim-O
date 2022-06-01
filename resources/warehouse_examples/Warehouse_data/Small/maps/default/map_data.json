@@ -1,0 +1,7 @@
+{
+	"waypoint_horizontal_distance"	: 0.9,
+	"waypoint_vertical_distance"	: 1.3,
+	"pod_radius"		: 0.4,
+	"pod_horizontal_length"	: 0.4, 
+	"pod_vertical_length" 	: 0.6
+}

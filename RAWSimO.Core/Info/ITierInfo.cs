@@ -32,6 +32,16 @@ namespace RAWSimO.Core.Info
         /// <returns>All output stations located on this tier.</returns>
         IEnumerable<IOutputStationInfo> GetInfoOutputStations();
         /// <summary>
+        /// Returns the input pallet stands placed on this tier.
+        /// </summary>
+        /// <returns>All input stations located on this tier.</returns>
+        IEnumerable<IInputStationInfo> GetInfoInputPalletStands();
+        /// <summary>
+        /// Returns the output pallet stnads placed on this tier.
+        /// </summary>
+        /// <returns>All output stations located on this tier.</returns>
+        IEnumerable<IOutputStationInfo> GetInfoOutputPalletStands();
+        /// <summary>
         /// Returns all waypoints on this tier.
         /// </summary>
         /// <returns>The waypoints on this tier.</returns>

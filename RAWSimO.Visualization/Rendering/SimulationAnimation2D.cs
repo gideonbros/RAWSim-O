@@ -50,7 +50,10 @@ namespace RAWSimO.Visualization.Rendering
         private Dictionary<IPodInfo, SimulationVisualPod2D> _shadowPodVisuals;
         private Dictionary<IInputStationInfo, SimulationVisualInputStation2D> _iStationVisuals;
         private Dictionary<IOutputStationInfo, SimulationVisualOutputStation2D> _oStationVisuals;
+        private Dictionary<IInputStationInfo, SimulationVisualInputPalletStand2D> _iPalletStandVisuals;
+        private Dictionary<IOutputStationInfo, SimulationVisualOutputPalletStand2D> _oPalletStandVisuals;
         private Dictionary<IWaypointInfo, SimulationVisualWaypoint2D> _waypointVisuals;
+        private Dictionary<IWaypointInfo, SimulationVisualUnavailablePod2D> _unavailablePodVisuals;
         private Image _waypointGraphVisual;
         private Dictionary<IBotInfo, SimulationVisualGoalMarker2D> _botGoalMarkerVisuals;
         private Dictionary<IBotInfo, SimulationVisualGoalMarker2D> _shadowBotGoalMarkerVisuals;
@@ -60,6 +63,7 @@ namespace RAWSimO.Visualization.Rendering
         private Dictionary<IBotInfo, SimulationVisualPathMarker2D> _shadowBotPathVisuals;
         private Dictionary<IGuardInfo, SimulationVisualGuard2D> _guardVisuals;
         private Dictionary<IWaypointInfo, SimulationVisualElevatorEntrance2D> _elevatorEntranceVisuals;
+        private SimulationVisualWave waveVisualizer;
 
         public void UpdateCurrentTier(ITierInfo newTier)
         {
@@ -76,11 +80,19 @@ namespace RAWSimO.Visualization.Rendering
         private void Add(UIElement element)
         {
             _contentControl.Children.Add(element);
-            if (element is SimulationVisualGoalMarker2D)
+            if (element is SimulationVisualInputPalletStand2D)
+                Canvas.SetZIndex(element, 6);
+            else if (element is SimulationVisualOutputPalletStand2D)
+                Canvas.SetZIndex(element, 5);
+            else if (element is SimulationVisualWave)
+                Canvas.SetZIndex(element, 11);
+            else if (element is SimulationVisualGoalMarker2D)
                 Canvas.SetZIndex(element, 10);
             else if (element is SimulationVisualBot2D)
                 Canvas.SetZIndex(element, 9);
             else if (element is SimulationVisualPod2D)
+                Canvas.SetZIndex(element, 8);
+            else if (element is SimulationVisualUnavailablePod2D)
                 Canvas.SetZIndex(element, 8);
             else if (element is SimulationVisualGuard2D)
                 Canvas.SetZIndex(element, 7);
@@ -123,18 +135,18 @@ namespace RAWSimO.Visualization.Rendering
                 Remove(visual);
             // --> Init visuals
             double waypointRadius = _instance.GetInfoTiers().First().GetInfoWaypoints().First().GetInfoLength() / 2.0;
-            double strokeThickness = 0.2 * Math.Min(_transformer.ProjectXLength(waypointRadius), _transformer.ProjectYLength(waypointRadius));
+            double strokeThickness = 0.8 * Math.Min(_transformer.ProjectXLength(waypointRadius), _transformer.ProjectYLength(waypointRadius));
             // Add bots
             _botVisuals = _currentTier.GetInfoBots().ToDictionary(k => k, v =>
             {
-                SimulationVisualBot2D botVisual = new SimulationVisualBot2D(v, _config.DetailLevel, _transformer, strokeThickness, _elementClickAction, this);
+                SimulationVisualBot2D botVisual = new SimulationVisualBot2D(v, _config.DetailLevel, _transformer, strokeThickness * 0.5, _elementClickAction, this);
                 _infoControl.Register(v, botVisual);
                 return botVisual;
             });
             // Add non-visual bots
             _shadowBotVisuals = _instance.GetInfoBots().Except(_botVisuals.Keys).ToDictionary(k => k, v =>
             {
-                SimulationVisualBot2D botVisual = new SimulationVisualBot2D(v, _config.DetailLevel, _transformer, strokeThickness, _elementClickAction, this);
+                SimulationVisualBot2D botVisual = new SimulationVisualBot2D(v, _config.DetailLevel, _transformer, strokeThickness * 0.5, _elementClickAction, this);
                 _infoControl.Register(v, botVisual);
                 return botVisual;
             });
@@ -145,13 +157,17 @@ namespace RAWSimO.Visualization.Rendering
                 _infoControl.Register(v, podVisual);
                 return podVisual;
             });
+            // NOTE: For some reson this crashes when we load different warehouse through parametrization
+            // Even though the count of the selection is 0, the shadowPods are somehow still created, using the previously
+            // loaded warehouse addresses.
             // Add non-visual bots
-            _shadowPodVisuals = _instance.GetInfoPods().Except(_podVisuals.Keys).ToDictionary(k => k, v =>
-            {
-                SimulationVisualPod2D podVisual = new SimulationVisualPod2D(v, _config.DetailLevel, _transformer, strokeThickness, _heatModeEnabled, _elementClickAction, this);
-                _infoControl.Register(v, podVisual);
-                return podVisual;
-            });
+            if (_currentTier.GetInfoPods().Except(_podVisuals.Keys).Select(p => p.GetPodAddress()).Count() > 0)
+                _shadowPodVisuals = _instance.GetInfoPods().Except(_podVisuals.Keys).ToDictionary(k => k, v =>
+                {
+                    SimulationVisualPod2D podVisual = new SimulationVisualPod2D(v, _config.DetailLevel, _transformer, strokeThickness, _heatModeEnabled, _elementClickAction, this);
+                    _infoControl.Register(v, podVisual);
+                    return podVisual;
+                });
             // Add input-stations
             _iStationVisuals = _currentTier.GetInfoInputStations().ToDictionary(k => k, v =>
             {
@@ -173,6 +189,28 @@ namespace RAWSimO.Visualization.Rendering
                 //_infoControl.Register(v, elevatorEntranceVisual); // TODO enable again
                 return elevatorEntranceVisual;
             });
+            // Add input pallet stands
+            _iPalletStandVisuals = _currentTier.GetInfoInputPalletStands().ToDictionary(k => k, v =>
+            {
+                SimulationVisualInputPalletStand2D iPalletStandVisual = new SimulationVisualInputPalletStand2D(v, _config.DetailLevel, _transformer, strokeThickness, _elementClickAction, this);
+                _infoControl.Register(v, iPalletStandVisual);
+                return iPalletStandVisual;
+            });
+            _oPalletStandVisuals = _currentTier.GetInfoOutputPalletStands().ToDictionary(k => k, v =>
+            {
+                SimulationVisualOutputPalletStand2D oPalletStandVisual = new SimulationVisualOutputPalletStand2D(v, _config.DetailLevel, _transformer, strokeThickness, _elementClickAction, this);
+                _infoControl.Register(v, oPalletStandVisual);
+                return oPalletStandVisual;
+            });
+
+            _unavailablePodVisuals = _currentTier.GetInfoWaypoints().Where(wp => wp.GetInfoUnavailableStorage()).ToDictionary(k => k, v =>
+                    {
+                        SimulationVisualUnavailablePod2D unavailableStorage = new SimulationVisualUnavailablePod2D(v, _config.DetailLevel, _transformer, strokeThickness, _elementClickAction, this);
+                        _infoControl.Register(v, unavailableStorage);
+                        return unavailableStorage;
+                    });
+
+            // Add output pallet stands
             if (_config.DetailLevel >= DetailLevel.Debug)
             {
                 // Refine level of detail
@@ -241,6 +279,10 @@ namespace RAWSimO.Visualization.Rendering
                     return new SimulationVisualPathMarker2D(v, _config.DetailLevel, _transformer, strokeThickness, _elementClickAction, this);
                 });
             }
+            if(_config.DrawWave)
+            {
+                waveVisualizer = new SimulationVisualWave(_instance, _config.DetailLevel, _transformer, 30 * strokeThickness, _elementClickAction, this);
+            }
             // --> Add the generated elements to the GUI
             // Add new waypoint visuals to the view
             if (_config.DetailLevel >= DetailLevel.Debug)
@@ -255,12 +297,21 @@ namespace RAWSimO.Visualization.Rendering
                     Add(_waypointGraphVisual);
                 }
             }
+            foreach (var wp in _unavailablePodVisuals.Keys)
+                Add(_unavailablePodVisuals[wp]);
             // Add new iStation visuals to the view
             foreach (var iStation in _currentTier.GetInfoInputStations())
                 Add(_iStationVisuals[iStation]);
             // Add new oStation visuals to the view
             foreach (var oStation in _currentTier.GetInfoOutputStations())
                 Add(_oStationVisuals[oStation]);
+            // Add new iPalletStand visuals to the view
+            foreach (var iPalletStand in _currentTier.GetInfoInputPalletStands())
+                Add(_iPalletStandVisuals[iPalletStand]);
+            // Add new oPalletStand visuals to the view
+            foreach (var oPalletStand in _currentTier.GetInfoOutputPalletStands())
+                Add(_oPalletStandVisuals[oPalletStand]);
+            // Add new elevator visuals to the view
             foreach (var elevatorEntrance in _elevatorEntranceVisuals.Keys)
                 Add(_elevatorEntranceVisuals[elevatorEntrance]);
             // Add new path marker visuals to the view
@@ -285,7 +336,11 @@ namespace RAWSimO.Visualization.Rendering
             if (_config.DetailLevel >= DetailLevel.Debug)
                 foreach (var guard in _currentTier.GetInfoGuards())
                     Add(_guardVisuals[guard]);
+            if (_config.DrawWave)
+                Add(waveVisualizer);
             // Update the view
+            //Add(potentialLocations);
+            //Add(assignedLocations);
             Update(true);
         }
 
@@ -293,112 +348,132 @@ namespace RAWSimO.Visualization.Rendering
         {
             if (_instance.GetInfoChanged() || overrideUpdate)
             {
-                _dispatcher.Invoke(() =>
-                    {
-                        // Get new elements and leaving elements
-                        IBotInfo[] newBots = _currentTier.GetInfoBots().Except(_botVisuals.Keys).ToArray();
-                        IPodInfo[] newPods = _currentTier.GetInfoPods().Except(_podVisuals.Keys).ToArray();
-                        IBotInfo[] oldBots = _botVisuals.Keys.Where(b => b.GetInfoCurrentTier() != _currentTier).ToArray();
-                        IPodInfo[] oldPods = _podVisuals.Keys.Where(b => b.GetInfoCurrentTier() != _currentTier).ToArray();
-                        // ---> Add new visuals of the tier
-                        foreach (var newBot in newBots)
-                        {
-                            if (_config.DrawPath)
-                            {
-                                // Add path marker of bot
-                                _botPathVisuals.Add(newBot, _shadowBotPathVisuals[newBot]);
-                                _shadowBotPathVisuals.Remove(newBot);
-                                Add(_botPathVisuals[newBot]);
-                            }
-                            if (_config.DrawDestination)
-                            {
-                                // Add destination marker of bot
-                                _botDestinationMarkerVisuals.Add(newBot, _shadowBotDestinationMarkerVisuals[newBot]);
-                                _shadowBotDestinationMarkerVisuals.Remove(newBot);
-                                Add(_botDestinationMarkerVisuals[newBot]);
-                            }
-                        }
-                        foreach (var newPod in newPods)
-                        {
-                            // Add new pod
-                            _podVisuals.Add(newPod, _shadowPodVisuals[newPod]);
-                            _shadowPodVisuals.Remove(newPod);
-                            Add(_podVisuals[newPod]);
-                        }
-                        foreach (var newBot in newBots)
-                        {
-                            // Add new bot
-                            _botVisuals.Add(newBot, _shadowBotVisuals[newBot]);
-                            _shadowBotVisuals.Remove(newBot);
-                            Add(_botVisuals[newBot]);
-                            if (_config.DrawGoal)
-                            {
-                                // Add goal marker of bot
-                                _botGoalMarkerVisuals.Add(newBot, _shadowBotGoalMarkerVisuals[newBot]);
-                                _shadowBotGoalMarkerVisuals.Remove(newBot);
-                                Add(_botGoalMarkerVisuals[newBot]);
-                            }
-                        }
-                        // ---> Remove visuals not part of this tier
-                        foreach (var oldPod in oldPods)
-                        {
-                            // Remove pod
-                            _shadowPodVisuals.Add(oldPod, _podVisuals[oldPod]);
-                            _podVisuals.Remove(oldPod);
-                            Remove(_shadowPodVisuals[oldPod]);
-                        }
-                        foreach (var oldBot in oldBots)
-                        {
-                            // Remove bot
-                            _shadowBotVisuals.Add(oldBot, _botVisuals[oldBot]);
-                            _botVisuals.Remove(oldBot);
-                            Remove(_shadowBotVisuals[oldBot]);
-                            if (_config.DrawGoal)
-                            {
-                                // Remove goal marker of bot
-                                _shadowBotGoalMarkerVisuals.Add(oldBot, _botGoalMarkerVisuals[oldBot]);
-                                _botGoalMarkerVisuals.Remove(oldBot);
-                                Remove(_shadowBotGoalMarkerVisuals[oldBot]);
-                            }
-                            if (_config.DrawDestination)
-                            {
-                                // Remove destination marker of bot
-                                _shadowBotDestinationMarkerVisuals.Add(oldBot, _botDestinationMarkerVisuals[oldBot]);
-                                _botDestinationMarkerVisuals.Remove(oldBot);
-                                Remove(_shadowBotDestinationMarkerVisuals[oldBot]);
-                            }
-                            if (_config.DrawPath)
-                            {
-                                // Remove path marker of bot
-                                _shadowBotPathVisuals.Add(oldBot, _botPathVisuals[oldBot]);
-                                _botPathVisuals.Remove(oldBot);
-                                Remove(_shadowBotPathVisuals[oldBot]);
-                            }
-                        }
-
-                        // ---> Update movable visual objects
-                        foreach (var botVisual in _botVisuals.Values)
-                            botVisual.UpdateTransformation(overrideUpdate);
-                        foreach (var podVisual in _podVisuals.Values)
-                            podVisual.UpdateTransformation(overrideUpdate);
-                        // Update goal markers if desired
-                        if (_config.DrawGoal)
-                            foreach (var goalVisual in _botGoalMarkerVisuals.Values)
-                                goalVisual.Update();
-                        // Update destination markers if desired
-                        if (_config.DrawDestination)
-                            foreach (var destinationVisual in _botDestinationMarkerVisuals.Values)
-                                destinationVisual.Update();
-                        // Update path markers if desired
-                        if (_config.DrawPath)
-                            foreach (var pathVisual in _botPathVisuals.Values)
-                                pathVisual.Update();
-                        // Update guards if in debug level
-                        if (_config.DetailLevel >= DetailLevel.Debug)
-                            foreach (var guardVisual in _guardVisuals.Values)
-                                guardVisual.Update();
-                    });
+                _overrideUpdate = overrideUpdate;
+                _dispatcher.Invoke(UpdateMethod);
             }
+        }
+
+        private bool _overrideUpdate;
+        private void UpdateMethod()
+        {
+            // Get new elements and leaving elements
+            IBotInfo[] newBots = _currentTier.GetInfoBots().Except(_botVisuals.Keys).ToArray();
+            IPodInfo[] newPods = _currentTier.GetInfoPods().Except(_podVisuals.Keys).ToArray();
+            IBotInfo[] oldBots = _botVisuals.Keys.Where(b => b.GetInfoCurrentTier() != _currentTier).ToArray();
+            IPodInfo[] oldPods = _podVisuals.Keys.Where(b => b.GetInfoCurrentTier() != _currentTier).ToArray();
+            // ---> Add new visuals of the tier
+            foreach (var newBot in newBots)
+            {
+                if (_config.DrawPath)
+                {
+                    // Add path marker of bot
+                    _botPathVisuals.Add(newBot, _shadowBotPathVisuals[newBot]);
+                    if (_shadowBotPathVisuals.ContainsKey(newBot))
+                        _shadowBotPathVisuals.Remove(newBot);
+                    Add(_botPathVisuals[newBot]);
+                }
+                if (_config.DrawDestination)
+                {
+                    // Add destination marker of bot
+                    _botDestinationMarkerVisuals.Add(newBot, _shadowBotDestinationMarkerVisuals[newBot]);
+                    if (_shadowBotDestinationMarkerVisuals.ContainsKey(newBot))
+                        _shadowBotDestinationMarkerVisuals.Remove(newBot);
+                    Add(_botDestinationMarkerVisuals[newBot]);
+                }
+            }
+            foreach (var newPod in newPods)
+            {
+                // Add new pod
+                _podVisuals.Add(newPod, _shadowPodVisuals[newPod]);
+                if (_shadowPodVisuals.ContainsKey(newPod))
+                    _shadowPodVisuals.Remove(newPod);
+                Add(_podVisuals[newPod]);
+            }
+            foreach (var newBot in newBots)
+            {
+                // Add new bot
+                _botVisuals.Add(newBot, _shadowBotVisuals[newBot]);
+                if (_shadowBotVisuals.ContainsKey(newBot))
+                    _shadowBotVisuals.Remove(newBot);
+                Add(_botVisuals[newBot]);
+                if (_config.DrawGoal)
+                {
+                    // Add goal marker of bot
+                    _botGoalMarkerVisuals.Add(newBot, _shadowBotGoalMarkerVisuals[newBot]);
+                    if (_shadowBotGoalMarkerVisuals.ContainsKey(newBot))
+                        _shadowBotGoalMarkerVisuals.Remove(newBot);
+                    Add(_botGoalMarkerVisuals[newBot]);
+                }
+            }
+            // ---> Remove visuals not part of this tier
+            foreach (var oldPod in oldPods)
+            {
+                // Remove pod
+                _shadowPodVisuals.Add(oldPod, _podVisuals[oldPod]);
+                if (_podVisuals.ContainsKey(oldPod))
+                    _podVisuals.Remove(oldPod);
+                Remove(_shadowPodVisuals[oldPod]);
+            }
+            foreach (var oldBot in oldBots)
+            {
+                // Remove bot
+                _shadowBotVisuals.Add(oldBot, _botVisuals[oldBot]);
+                if (_botVisuals.ContainsKey(oldBot))
+                    _botVisuals.Remove(oldBot);
+                Remove(_shadowBotVisuals[oldBot]);
+                if (_config.DrawGoal)
+                {
+                    // Remove goal marker of bot
+                    _shadowBotGoalMarkerVisuals.Add(oldBot, _botGoalMarkerVisuals[oldBot]);
+                    if (_botGoalMarkerVisuals.ContainsKey(oldBot))
+                        _botGoalMarkerVisuals.Remove(oldBot);
+                    Remove(_shadowBotGoalMarkerVisuals[oldBot]);
+                }
+                if (_config.DrawDestination)
+                {
+                    // Remove destination marker of bot
+                    _shadowBotDestinationMarkerVisuals.Add(oldBot, _botDestinationMarkerVisuals[oldBot]);
+                    if (_botDestinationMarkerVisuals.ContainsKey(oldBot))
+                        _botDestinationMarkerVisuals.Remove(oldBot);
+                    Remove(_shadowBotDestinationMarkerVisuals[oldBot]);
+                }
+                if (_config.DrawPath)
+                {
+                    // Remove path marker of bot
+                    _shadowBotPathVisuals.Add(oldBot, _botPathVisuals[oldBot]);
+                    if (_botPathVisuals.ContainsKey(oldBot))
+                        _botPathVisuals.Remove(oldBot);
+                    Remove(_shadowBotPathVisuals[oldBot]);
+                }
+            }
+
+            // ---> Update movable visual objects
+            foreach (var botVisual in _botVisuals.Values)
+                botVisual.UpdateTransformation(_overrideUpdate);
+            foreach (var podVisual in _podVisuals.Values)
+                podVisual.UpdateTransformation(_overrideUpdate);
+            // Update goal markers if desired
+            if (_config.DrawGoal)
+                foreach (var goalVisual in _botGoalMarkerVisuals.Values)
+                    goalVisual.Update();
+            // Update destination markers if desired
+            if (_config.DrawDestination)
+                foreach (var destinationVisual in _botDestinationMarkerVisuals.Values)
+                    destinationVisual.Update();
+            // Update path markers if desired
+            if (_config.DrawPath)
+                foreach (var pathVisual in _botPathVisuals.Values)
+                    pathVisual.Update();
+            // Update guards if in debug level
+            if (_config.DetailLevel >= DetailLevel.Debug)
+                foreach (var guardVisual in _guardVisuals.Values)
+                    guardVisual.Update();
+            //Update Wave
+            if (_config.DrawWave)
+            {
+                waveVisualizer.Update();
+            }
+
         }
 
         public override void StopAnimation()

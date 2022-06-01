@@ -32,6 +32,11 @@ namespace RAWSimO.Core.Info
         /// <returns>The y-position.</returns>
         double GetInfoGoalY();
         /// <summary>
+        /// Returns Bot zones.
+        /// </summary>
+        /// <returns></returns>
+        List<string> GetZones();
+        /// <summary>
         /// Gets the current waypoint that is considered by planning.
         /// </summary>
         /// <returns>The current waypoint.</returns>
@@ -67,6 +72,11 @@ namespace RAWSimO.Core.Info
         /// <returns><code>true</code> if the robot is blocked, <code>false</code> otherwise.</returns>
         bool GetInfoBlocked();
         /// <summary>
+        /// Frequency of the block-unblock loop
+        /// </summary>
+        /// <returns>Frfequency of block-ublock loop</returns>
+        double GetInfoBlockedLoopFrequency();
+        /// <summary>
         /// The time remaining the bot is blocked.
         /// </summary>
         /// <returns>The time remaining the bot is blocked.</returns>
@@ -76,5 +86,17 @@ namespace RAWSimO.Core.Info
         /// </summary>
         /// <returns><code>true</code> if the robot is within a queue area, <code>false</code> otherwise.</returns>
         bool GetInfoIsQueueing();
+
+        double GetInfoHue();
+
+        /// <summary>
+        /// Returns the waypoint ID of the POD for the given approach waypoint ID
+        /// </summary>
+        /// <param name="approachID"></param>
+        /// <returns></returns>
+        int GetInfoPodLocationID(int approachID);
+
+        Tuple<string, int> GetCurrentItemAddressAndMate();
+        List<Tuple<string, bool, int, bool>> GetStatus();
     }
 }

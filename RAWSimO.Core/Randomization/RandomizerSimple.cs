@@ -1,5 +1,6 @@
 ﻿using RAWSimO.Core.Interfaces;
 using System;
+using System.Security.Cryptography;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -24,7 +25,43 @@ namespace RAWSimO.Core.Randomization
         /// Creates a new instance of this randomizer.
         /// </summary>
         /// <param name="seed">The seed to use.</param>
-        public RandomizerSimple(int seed) { _randomizer = new Random(seed); }
+        public RandomizerSimple(int seed)
+        {
+            _seed = seed;
+
+            if (_seed == -1) // Requesting random seed.
+            {
+                _seed = GetRandomSeed(); // Set requested seed to previously generated random seed.
+            }
+
+            _randomizer = new Random(_seed);
+        }
+
+        public static int GetRandomSeed()
+        {
+            if (GlobalRandomSeed == -1) // If random seed has not been already generated.
+            {
+                const int maxTries = 100;
+                int tries = 0;
+                while (GlobalRandomSeed == -1) // Try generating a random seed 100 times. Only one iteration of this loop is expected but max tries is
+                {                             // added as precaution for infinite loop.
+                    if (tries >= maxTries)
+                    {
+                        throw new Exception("cannot generate random seed");
+                    }
+                    GlobalRandomSeed = (int)DateTime.Now.Ticks;
+                    ++tries;
+                }
+            }
+            return GlobalRandomSeed;
+        }
+
+        public static int GlobalRandomSeed = -1;
+
+        public Random InternalRandomizer() { return _randomizer; }
+
+        private int _seed;
+        public int Seed() { return _seed; }
 
         #region IRandomizer Members
 
@@ -177,10 +214,15 @@ namespace RAWSimO.Core.Randomization
                 throw new ArgumentException("k cannot be smaller than zero!");
             if (theta < 0)
                 throw new ArgumentException("theta cannot be smaller than zero!");
+            
+            double extraFactor = double.NaN;
             if (k < 1)
-                k++;
+            {
+                extraFactor = Math.Pow(NextDouble(), (double) 1 / k);
+                k++ ;
+            }
             double d = k - (1.0 / 3.0);
-            double cc = 1 - Math.Sqrt(9.0 * d);
+            double cc = 1 / Math.Sqrt(9.0 * d);
             double gammaVariate = -1.0;
             double u;
             double x = 0;
@@ -211,6 +253,9 @@ namespace RAWSimO.Core.Randomization
                     gammaVariateStillToBeGenerated = false;
                 }
             }
+            //if k was less than 1, then we have to multiply it by extraFactor to get standard gammaVariate
+            if (!double.IsNaN(extraFactor))
+                gammaVariate *= extraFactor;
             //now you have a standard gammaVariate, that should be multiplied by theta to arrive at a real gammaVariate
             gammaVariate *= theta;
             return gammaVariate;
@@ -234,5 +279,53 @@ namespace RAWSimO.Core.Randomization
         }
 
         #endregion
+    }
+
+    class SecureRandom : RandomNumberGenerator
+    {
+        private readonly RandomNumberGenerator rng;
+
+        public SecureRandom()
+        {
+            rng = new RNGCryptoServiceProvider();
+        }
+        public int Next()
+        {
+            var data = new byte[sizeof(int)];
+            rng.GetBytes(data);
+            return BitConverter.ToInt32(data, 0) & (int.MaxValue - 1);
+        }
+
+        public int Next(int maxValue)
+        {
+            return Next(0, maxValue);
+        }
+
+        public int Next(int minValue, int maxValue)
+        {
+            if (minValue > maxValue)
+            {
+                throw new ArgumentOutOfRangeException();
+            }
+            return (int)Math.Floor((minValue + ((double)maxValue - minValue) * NextDouble()));
+        }
+
+        public double NextDouble()
+        {
+            var data = new byte[sizeof(uint)];
+            rng.GetBytes(data);
+            var randUint = BitConverter.ToUInt32(data, 0);
+            return randUint / (uint.MaxValue + 1.0);
+        }
+
+        public override void GetBytes(byte[] data)
+        {
+            rng.GetBytes(data);
+        }
+
+        public override void GetNonZeroBytes(byte[] data)
+        {
+            rng.GetNonZeroBytes(data);
+        }
     }
 }

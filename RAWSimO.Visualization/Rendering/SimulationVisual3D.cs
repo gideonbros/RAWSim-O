@@ -301,8 +301,8 @@ namespace RAWSimO.Visualization.Rendering
             {
                 Fill = coloredBrush,
                 Center = new Point3D(0, 0, _height / 8.0),
-                Length = Pod.GetInfoRadius() * 2,
-                Width = Pod.GetInfoRadius() * 2,
+                Length = Pod.GetInfoHorizontalLength() * 2,
+                Width = Pod.GetInfoVerticalLength() * 2,
                 Height = _height / 4.0 * 3.0
             };
             Children.Add(visual);

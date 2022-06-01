@@ -11,6 +11,10 @@ namespace RAWSimO.Core.Interfaces
     /// </summary>
     public interface IRandomizer
     {
+        Random InternalRandomizer();
+
+        int Seed();
+
         /// <summary>
         /// Returns a random <code>int</code> number within the interval [0,<code>maxValue</code>).
         /// </summary>

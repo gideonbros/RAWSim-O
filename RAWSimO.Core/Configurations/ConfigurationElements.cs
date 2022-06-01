@@ -107,4 +107,18 @@ namespace RAWSimO.Core.Configurations
         /// </summary>
         RealTimeAndMemory
     }
+    /// <summary>
+    /// States how are the bot locations chosen.
+    /// </summary>
+    public enum BotLocations
+    {
+        /// <summary>
+        /// Indicates that bot locations will be assigned randomly.
+        /// </summary>
+        Random,
+        /// <summary>
+        /// Indicates that bot locations will be read from file.
+        /// </summary>
+        Fixed
+    }
 }

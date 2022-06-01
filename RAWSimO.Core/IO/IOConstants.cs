@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Reflection;
 
 namespace RAWSimO.Core.IO
 {
@@ -325,23 +326,15 @@ namespace RAWSimO.Core.IO
         /// </summary>
         public static readonly List<string> DEFAULT_RESOURCE_DIRS = new List<string>
         {
-            Path.Combine(Path.GetPathRoot(Path.GetFullPath(Directory.GetCurrentDirectory())), "scratch", "mmarius", "research", "awsimopt", "resources", "Wordlists"),
-            Path.Combine(Path.GetPathRoot(Path.GetFullPath(Directory.GetCurrentDirectory())), "scratch", "mmarius", "research", "awsimopt", "resources"),
-            Path.Combine(Path.GetPathRoot(Path.GetFullPath(Directory.GetCurrentDirectory())), "scratch", "mmarius", "research", "awsimopt", "repo", "Material", "Resources", "Wordlists"),
-            Path.Combine(Path.GetPathRoot(Path.GetFullPath(Directory.GetCurrentDirectory())), "scratch", "mmarius", "research", "awsimopt", "repo", "Material", "Resources"),
-            Path.Combine(Path.GetPathRoot(Path.GetFullPath(Directory.GetCurrentDirectory())), "scratch", "herbort", "storage_eval", "repo", "Material", "Resources", "Wordlists"),
-            Path.Combine(Path.GetPathRoot(Path.GetFullPath(Directory.GetCurrentDirectory())), "scratch", "herbort", "storage_eval", "repo", "Material", "Resources"),
-            Path.Combine("Material", "Resources", "Wordlists"),
+            Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location),"..","..","..","..", "resources"),
+            Path.Combine(Path.GetFullPath(Directory.GetCurrentDirectory()), "..", "Resources"),
+            Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "Resources"),
+            Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location),"..","..","..","..","Material", "Resources"),
             Path.Combine("Material", "Resources"),
-            Path.Combine("repo", "Material", "Resources", "Wordlists"),
             Path.Combine("repo", "Material", "Resources"),
-            Path.Combine("..", "..", "..", "Material", "Resources", "Wordlists"),
             Path.Combine("..", "..", "..", "Material", "Resources"),
-            Path.Combine("..", "..", "..", "..", "Material", "Resources", "Wordlists"),
             Path.Combine("..", "..", "..", "..", "Material", "Resources"),
-            Path.Combine("Resources", "Wordlists"),
             Path.Combine("Resources"),
-            Path.Combine("Wordlists"),
         };
 
         #endregion

@@ -76,5 +76,10 @@ namespace RAWSimO.Core.Info
         /// </summary>
         /// <returns>The number of open bundles.</returns>
         int GetInfoOpenBundles();
+        /// <summary>
+        /// Gets the full name of the object 
+        /// </summary>
+        /// <returns>String representation of the object</returns>
+        string GetInfoFullName();
     }
 }

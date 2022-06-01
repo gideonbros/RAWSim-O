@@ -56,6 +56,21 @@ namespace RAWSimO.Core.Control
             instance.PodPickup += PodPickup;
         }
 
+
+         /// <summary>
+        /// Enqueues an MultiPointGather task.
+        /// </summary>
+        /// <param name="movableStation">The bot that shall execute the task.</param>
+        /// <param name="order">The station at which the task will be executed.</param>
+        protected void EnqueueMultiPointGather(MovableStation station, Order order)
+        {
+           MultiPointGatherTask task = new MultiPointGatherTask(Instance, station, order);
+            task.Prepare();
+            if (_taskQueues[station] != null)
+                _taskQueues[station].Cancel();
+            _taskQueues[station] = task;
+            _lastTaskEnqueued[station] = task;
+        }
         /// <summary>
         /// Enqueues an extraction task.
         /// </summary>
@@ -218,7 +233,6 @@ namespace RAWSimO.Core.Control
             // Submit the task
             EnqueueRest(bot, restLocation);
         }
-
         /// <summary>
         /// Allocates a repositioning task, if available.
         /// </summary>
@@ -350,8 +364,6 @@ namespace RAWSimO.Core.Control
         {
             if (t == null)
                 return;
-            if (t.Type != BotTaskType.None && t != _taskQueues[r])
-                throw new ArgumentException("Wrong task to complete - bot was executing another task!");
 
             // Remove the finished task and free the resources
             _taskQueues[r].Finish();

@@ -76,6 +76,12 @@ namespace RAWSimO.CLI
                     logLine("None");
                 }
                 logLine("-----------------------------------------------------------");
+                if (ex.Data.Contains("UserMessage"))
+                {
+                    logLine("Additional information:");
+                    logLine(ex.Data["UserMessage"].ToString());
+                    logLine("-----------------------------------------------------------");
+                }
             }
         }
     }

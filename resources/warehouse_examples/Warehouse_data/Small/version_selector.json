@@ -1,0 +1,20 @@
+{
+	"warehouse_version_index" : 0,
+	"orders_version_index" : 4,
+	"zones_index" : -1,
+	"spawn_locations": 0,
+
+	"warehouse_versions": [
+		"default",
+		"blocked_pods"
+	],
+
+	"orders_versions": [
+		"default",
+		"two_orders",
+		"const_time",
+		"pallet_stacking",
+		"order_batching"
+	]
+
+}

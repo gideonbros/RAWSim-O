@@ -1,3 +1,3 @@
-call xbuild /p:Configuration=Mono /p:Platform=x86 RAWSimO.sln
+call msbuild /p:Configuration=Mono /p:Platform=x64 RAWSimO.sln
 
 pause

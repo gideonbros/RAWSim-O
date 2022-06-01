@@ -1,4 +1,5 @@
-﻿using System;
+﻿using RAWSimO.Core.Elements;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.Serialization;
@@ -22,7 +23,7 @@ namespace RAWSimO.Core.Geometrics
         /// <param name="x2">The upper bound of the x-values belonging to this sector.</param>
         /// <param name="y1">The lower bound of the y-values belonging to this sector.</param>
         /// <param name="y2">The upper bound of the y-values belonging to this sector.</param>
-        public QuadNode(int divisionThreshold, int combineThreshold, double x1, double x2, double y1, double y2)
+        public QuadNode(int divisionThreshold, int combineThreshold, double x1, double x2, double y1, double y2, double minHorizontalDiff, double minVerticalDiff)
         {
             DivisionThreshold = divisionThreshold;
             CombineThreshold = combineThreshold;
@@ -33,7 +34,9 @@ namespace RAWSimO.Core.Geometrics
             _midX = X1 + (X2 - X1) / 2;
             _midY = Y1 + (Y2 - Y1) / 2;
             _midXs = new double[] { X1 + (X2 - X1) * (1.0 / 4.0), X1 + (X2 - X1) * (3.0 / 4.0), X1 + (X2 - X1) * (1.0 / 4.0), X1 + (X2 - X1) * (3.0 / 4.0) };
-            _midYs = new double[] { Y1 + (Y2 - Y1) * (1.0 / 4.0), Y1 + (Y2 - Y1) * (1.0 / 4.0), Y1 + (Y2 - Y1) * (3.0 / 4.0), Y1 + (Y2 - Y1) * (3.0 / 4.0), };
+            _midYs = new double[] { Y1 + (Y2 - Y1) * (1.0 / 4.0), Y1 + (Y2 - Y1) * (1.0 / 4.0), Y1 + (Y2 - Y1) * (3.0 / 4.0), Y1 + (Y2 - Y1) * (3.0 / 4.0) };
+            MinXDifference = minHorizontalDiff;
+            MinYDifference = minVerticalDiff;
         }
 
         /// <summary>
@@ -100,6 +103,22 @@ namespace RAWSimO.Core.Geometrics
         /// The largest object of this node.
         /// </summary>
         private T _largestObject = null;
+
+        /// <summary>
+        /// Minimal difference in x-axis that each node should have
+        /// </summary>
+        private double MinXDifference { get; set; }
+
+        /// <summary>
+        /// Minimal difference in y-axis that each node should have
+        /// </summary>
+        private double MinYDifference { get; set; }
+
+        /// <summary>
+        /// Returns true if child nodes would not be too small
+        /// </summary>
+        private bool CanSplit => Math.Abs(_midX - X1) > MinXDifference && Math.Abs(X2 - _midX) > MinXDifference && 
+                                 Math.Abs(_midY - Y1) > MinYDifference && Math.Abs(Y2 - _midY) > MinYDifference; 
 
         /// <summary>
         /// Returns the <code>QuadNode</code> belonging to the specified direction.
@@ -187,10 +206,14 @@ namespace RAWSimO.Core.Geometrics
             // If this is a leaf node, check all objects
             if (this.Children[0] == null)
             {
+                 if (c is MateBot || (c.Instance.SettingConfig.DimensionlessBots && c is MovableStation && !c.Instance.FindWpFromXY(c.X, c.Y).IsQueueWaypoint)) 
+                    return false;
                 foreach (var other in Objects)
                 {
+                    if (other is MateBot) { continue; }
                     if (other == c) { continue; }
-                    if (other.IsCollision(c)) { return true; }
+                    if (other.IsCollision(c)) { 
+                        return true; }
                 }
                 return false;
             }
@@ -503,42 +526,42 @@ namespace RAWSimO.Core.Geometrics
         /// </summary>
         public void Reoptimize()
         {
-            // Growing the tree
-            if (this.Objects.Count >= DivisionThreshold)
+            // if this node has more objects then it should, and it can still split, split it and rearange it's objects to child nodes
+            if (Objects.Count >= DivisionThreshold && CanSplit)
             {
-                // Create child trees
-                this.Children[0] = new QuadNode<T>(DivisionThreshold, CombineThreshold, X1, _midX, Y1, _midY);
-                this.Children[1] = new QuadNode<T>(DivisionThreshold, CombineThreshold, _midX, X2, Y1, _midY);
-                this.Children[2] = new QuadNode<T>(DivisionThreshold, CombineThreshold, X1, _midX, _midY, Y2);
-                this.Children[3] = new QuadNode<T>(DivisionThreshold, CombineThreshold, _midX, X2, _midY, Y2);
+                // Create child nodes
+                Children[0] = new QuadNode<T>(DivisionThreshold, CombineThreshold, X1, _midX, Y1, _midY, MinXDifference, MinYDifference);
+                Children[1] = new QuadNode<T>(DivisionThreshold, CombineThreshold, _midX, X2, Y1, _midY, MinXDifference, MinYDifference);
+                Children[2] = new QuadNode<T>(DivisionThreshold, CombineThreshold, X1, _midX, _midY, Y2, MinXDifference, MinYDifference);
+                Children[3] = new QuadNode<T>(DivisionThreshold, CombineThreshold, _midX, X2, _midY, Y2, MinXDifference, MinYDifference);
 
-                // Move all objects into the corresponding one
-                foreach (var c in this.Objects)
+                // Move all objects into the corresponding child nodes
+                foreach (var c in Objects)
                     Add(c);
 
                 // Clean up this node
-                this.Objects.Clear();
+                Objects.Clear();
             }
 
             // Update all children
-            if (this.Children[0] != null)
-                foreach (var q in this.Children)
+            if (Children[0] != null)
+                foreach (var q in Children)
                     q.Reoptimize();
 
             // If has children, and each child is a leaf node, check to see if the sum of all of the objects within those 4 children is less than the QuadTree.CombineThreshold. If so, take all of the children's objects into this node and detach the children. 
-            if (this.Children[0] != null &&
-                this.Children[0].Children[0] == null &&
-                this.Children[1].Children[0] == null &&
-                this.Children[2].Children[0] == null &&
-                this.Children[3].Children[0] == null &&
-                (this.Children[0].Objects.Count + this.Children[1].Objects.Count + this.Children[2].Objects.Count + this.Children[3].Objects.Count) < CombineThreshold)
+            if (Children[0] != null &&
+                Children[0].Children[0] == null &&
+                Children[1].Children[0] == null &&
+                Children[2].Children[0] == null &&
+                Children[3].Children[0] == null &&
+                (Children[0].Objects.Count + Children[1].Objects.Count + Children[2].Objects.Count + Children[3].Objects.Count) < CombineThreshold)
             {
                 // Iterate the children
                 for (int i = 0; i < 4; i++)
                 {
                     // Need to clear Children[0] first so that Add will know it has no children.
-                    HashSet<T> circles = this.Children[i].Objects;
-                    this.Children[i] = null;
+                    HashSet<T> circles = Children[i].Objects;
+                    Children[i] = null;
                     // Add all objects from child nodes
                     foreach (var c in circles) Add(c);
                 }

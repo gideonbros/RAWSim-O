@@ -65,7 +65,7 @@ namespace RAWSimO.Core.Management
         private void InitStockInfo()
         {
             _currentActualStock = new VolatileIDDictionary<ItemDescription, int>(Instance.ItemDescriptions.Select(i => new VolatileKeyValuePair<ItemDescription, int>(i, 0)).ToList());
-            _currentAvailableStock = new VolatileIDDictionary<ItemDescription, int>(Instance.ItemDescriptions.Select(i => new VolatileKeyValuePair<ItemDescription, int>(i, 0)).ToList());
+            _currentAvailableStock = new VolatileIDDictionary<ItemDescription, int>(Instance.ItemDescriptions.Select(i => new VolatileKeyValuePair<ItemDescription, int>(i, Instance.SettingConfig.InventoryConfiguration.InitialAvailableStockPerPod)).ToList());
             _currentOverallDemand = new VolatileIDDictionary<ItemDescription, int>(Instance.ItemDescriptions.Select(i => new VolatileKeyValuePair<ItemDescription, int>(i, 0)).ToList());
         }
 
@@ -74,7 +74,10 @@ namespace RAWSimO.Core.Management
         /// </summary>
         /// <param name="item">The item description to check.</param>
         /// <returns>The amount of inventory left for that particular item.</returns>
-        public int GetActualStock(ItemDescription item) { return _currentActualStock[item]; }
+        public int GetActualStock(ItemDescription item) {
+            if (_currentActualStock == null) return 0;
+            return _currentActualStock[item]; 
+        }
         /// <summary>
         /// Gets information about the available inventory. Items reserved by all available orders are already excluded.
         /// </summary>
@@ -140,7 +143,7 @@ namespace RAWSimO.Core.Management
 
         private void SignalNewOrderAvailable(Order order)
         {
-            // Init, if necessary
+           /* // Init, if necessary
             if (_currentActualStock == null)
                 InitStockInfo();
             // Update stock information
@@ -152,6 +155,7 @@ namespace RAWSimO.Core.Management
                 // Update demand info
                 _currentOverallDemand[position.Key] += position.Value;
             }
+            */
         }
 
         #endregion

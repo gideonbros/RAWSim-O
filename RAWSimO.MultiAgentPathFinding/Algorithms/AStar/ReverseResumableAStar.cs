@@ -93,8 +93,15 @@ namespace RAWSimO.MultiAgentPathFinding.Algorithms.AStar
             //Here is a possible improvement: Add the rotation
             //Advantage: A* is more informed => will be expand less nodes => faster
             //Disadvantage: Need to Calculate the current angle and the angle to the goal node => slower
-            var distance = _graph.getDistance(node, GoalNode); // Math.Sqrt((_graph.PositionX[node] - _graph.PositionX[GoalNode]) * (_graph.PositionX[node] - _graph.PositionX[GoalNode]) + (_graph.PositionY[node] - _graph.PositionY[GoalNode]) * (_graph.PositionY[node] - _graph.PositionY[GoalNode]));
-            return _physics.getTimeNeededToMove(0, distance);
+
+            //var distance = _graph.getDistance(node, GoalNode); // Math.Sqrt((_graph.PositionX[node] - _graph.PositionX[GoalNode]) * (_graph.PositionX[node] - _graph.PositionX[GoalNode]) + (_graph.PositionY[node] - _graph.PositionY[GoalNode]) * (_graph.PositionY[node] - _graph.PositionY[GoalNode]));
+            //return _physics.getTimeNeededToMove(0, distance);
+
+            var x_dist = Math.Abs(_graph.PositionX[node] - _graph.PositionX[GoalNode]);
+            var y_dist = Math.Abs(_graph.PositionY[node] - _graph.PositionY[GoalNode]);
+            var rotationTime = (x_dist == 0 || y_dist == 0) ? 0 : _physics.getTimeNeededToTurn(0, Math.PI / 2);
+            return _physics.getTimeNeededToMove(0, x_dist) + _physics.getTimeNeededToMove(0, y_dist) + rotationTime;
+
         }
 
         /// <summary>
@@ -125,7 +132,10 @@ namespace RAWSimO.MultiAgentPathFinding.Algorithms.AStar
             //A hop is defined as follows: The longest distance between two nodes, where no turn is necessary.
             //The end of the hop is "node". In this method we search for the start ("lastTurnNode") and calculate the g as follows:
             //g(node) = time needed to get to "lastTurnNode" + time needed to turn + time needed to get to node
+            //var distanceForHop = _successorEdges[node].Distance * _successorEdges[node].Cost; //added edge cost from CSV
             var distanceForHop = _successorEdges[node].Distance;
+            var accumulatedCostForHop = _successorEdges[node].Cost; //edge cost from CSV
+            double nNodes = 1.0;
 
             //these two variables will hold the information
             var angle = _successorEdges[node].Angle;
@@ -135,9 +145,14 @@ namespace RAWSimO.MultiAgentPathFinding.Algorithms.AStar
             //We are searching backwards in a backwards graph.
             while (_backpointerEdge[lastTurnNode] != null && angle == _backpointerEdge[lastTurnNode].Angle)
             {
+                //distanceForHop += _backpointerEdge[lastTurnNode].Distance * _backpointerEdge[lastTurnNode].Cost;
                 distanceForHop += _backpointerEdge[lastTurnNode].Distance;
+                accumulatedCostForHop += _backpointerEdge[lastTurnNode].Cost; //accumulated edge costs for the entire hop
+                nNodes++;
                 lastTurnNode = _backpointerEdge[lastTurnNode].To; //You might ask: Why backpointer.To? It's OK. Answer: We are searching backwards in a backwards graph.
             }
+
+            var averageCostForHop = accumulatedCostForHop / nNodes;
 
             //is it the start node?
             if (_backpointerEdge[lastTurnNode] == null)
@@ -150,7 +165,9 @@ namespace RAWSimO.MultiAgentPathFinding.Algorithms.AStar
 
             //measurement in time!
             //g(node) = time needed to get to "lastTurnNode" + time needed to turn + time needed to get to node
-            return _gValues[lastTurnNode] + _physics.getTimeNeededToTurn(currentAngleInRad, targetAngleInRad) + _physics.getTimeNeededToMove(_physics.MaxSpeed, distanceForHop);
+            //return _gValues[lastTurnNode] + _physics.getTimeNeededToTurn(currentAngleInRad, targetAngleInRad) + _physics.getTimeNeededToMove(_physics.MaxSpeed, distanceForHop);
+            if (_agent.IsMate) averageCostForHop = 1;
+            return _gValues[lastTurnNode] + _physics.getTimeNeededToTurn(currentAngleInRad, targetAngleInRad) + _physics.getTimeNeededToMove(_physics.MaxSpeed, distanceForHop) * averageCostForHop;
         }
 
         /// <summary>
@@ -165,9 +182,17 @@ namespace RAWSimO.MultiAgentPathFinding.Algorithms.AStar
                 var edge = _graph.BackwardEdges[n][i];
                 if (// Ensure that the node is not blocked by a custom lock
                     (_customBlockedNodes == null || !_customBlockedNodes.Contains(edge.From)) &&
-                    // Ensure that the node is not locked and the agent can either go through obstacles or the node is not an obstacle
-                    !edge.FromNodeInfo.IsLocked && (_agent.CanGoThroughObstacles || !edge.FromNodeInfo.IsObstacle) || edge.From == GoalNode)
-                {
+                    // Ensure that the node is not locked and avoid bots driving through I/O pallet stands unless picking/putting pallet
+                    (!edge.FromNodeInfo.IsLocked
+                     //&& !(_agent.IgnoreInputPalletStandQueue && edge.FromNodeInfo.IsInputPalletStand) && 
+                     //!(_agent.IgnoreOutputPalletStandQueue && edge.FromNodeInfo.IsOutputPalletStand)
+                     // MateBots can always drive through each other and stand over each other, Bots can if DimensionlessBots is set, apart from pallet stand queues
+                     || _agent.IsMate || 
+                                         _agent.DimensionlessBots && !(edge.FromNodeInfo.IsLocked && 
+                                                (edge.FromNodeInfo.IsQueue || edge.FromNodeInfo.IsInputPalletStand || edge.FromNodeInfo.IsOutputPalletStand)))
+                    // Ensure that the node is not an obstacle or the agent can go through obstacles
+                    && (_agent.CanGoThroughObstacles || !edge.FromNodeInfo.IsObstacle) || edge.From == GoalNode)
+                { 
                     _successorEdges[edge.From] = edge;
                     yield return edge.From;
                 }
@@ -204,8 +229,8 @@ namespace RAWSimO.MultiAgentPathFinding.Algorithms.AStar
 
             if (// If the node is blocked by a custom lock we cannot proceed
                 (_customBlockedNodes != null && _customBlockedNodes.Contains(StartNode)) ||
-                // If the node is locked, we cannot proceed
-                _graph.NodeInfo[StartNode].IsLocked ||
+                // If the node is locked, we cannot proceed, unless the agent is picker (mate)
+                _graph.NodeInfo[StartNode].IsLocked && !_agent.IsMate ||
                 // If the agent cannot go through obstacles and the node is one, we cannot proceed
                 (!_agent.CanGoThroughObstacles && _graph.NodeInfo[StartNode].IsObstacle))
                 return false;
@@ -234,7 +259,7 @@ namespace RAWSimO.MultiAgentPathFinding.Algorithms.AStar
         /// </summary>
         /// <param name="node">The node.</param>
         /// <returns>Next the node in path.</returns>
-        public List<int> NextsNodesUntilTurn(int node)
+        public List<int> NodesUntilNextTurn(int node)
         {
             var nodes = new List<int>();
 
@@ -355,7 +380,7 @@ namespace RAWSimO.MultiAgentPathFinding.Algorithms.AStar
             { //rraStar StartNode = GoalNode of the Agent
 
                 //get all the nodes to the next hop
-                var nextHop = NextsNodesUntilTurn(currentNode);
+                var nextHop = NodesUntilNextTurn(currentNode);
                 for (int i = 0; i < nextHop.Count; i++)
                 {
                     //add node

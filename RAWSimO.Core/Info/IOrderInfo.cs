@@ -33,5 +33,13 @@ namespace RAWSimO.Core.Info
         /// </summary>
         /// <returns><code>true</code> if the order is completed, <code>false</code> otherwise.</returns>
         bool GetInfoIsCompleted();
+
+        int GetAssignedMovableStationID();
+        double GetAssignedMovableStationHue();
+
+        /// <summary>
+        /// Get an ID of the order.
+        /// </summary>
+        int ID { get; }
     }
 }

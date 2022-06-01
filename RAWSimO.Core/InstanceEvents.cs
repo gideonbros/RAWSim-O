@@ -698,7 +698,7 @@ namespace RAWSimO.Core
                 // Keep track of overall item count
                 StatOverallItemsOrdered += order.Positions.Sum(p => p.Value);
                 // Generate requests for the order
-                ResourceManager.CreateExtractRequests(order);
+                //ResourceManager.CreateExtractRequests(order);
                 // --> Raise event
                 NewOrder?.Invoke(order);
                 // Mark every new order in the history with a timestamp

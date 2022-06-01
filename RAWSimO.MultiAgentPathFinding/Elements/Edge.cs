@@ -34,6 +34,11 @@ namespace RAWSimO.MultiAgentPathFinding.Elements
         public short Angle;
 
         /// <summary>
+        /// cost of moving along the edge for path planner
+        /// </summary>
+        public double Cost;
+
+        /// <summary>
         /// Contains meta information about the from part of the edge.
         /// </summary>
         public NodeInfo FromNodeInfo;

@@ -4,9 +4,12 @@ using RAWSimO.Core.Elements;
 using RAWSimO.Core.Items;
 using RAWSimO.Core.Waypoints;
 using RAWSimO.MultiAgentPathFinding;
+using RAWSimO.Toolbox;
 using System;
 using System.Linq;
 using System.Collections.Generic;
+using System.IO;
+using RAWSimO.Core.Management;
 
 namespace RAWSimO.Core
 {
@@ -123,7 +126,7 @@ namespace RAWSimO.Core
 
         #endregion
 
-        #region OrderList
+        #region OrderList and AreaInfo
 
         /// <summary>
         /// Creates a new order list.
@@ -134,6 +137,36 @@ namespace RAWSimO.Core
         {
             OrderList = new OrderList(itemType);
             return OrderList;
+        }
+        
+        /// <summary>
+        /// Reads the file containing sorted sector:row positions and adds 
+        /// results as a cost
+        /// </summary>
+        /// <param name="path"></param>
+        public void CreateOrderLocationInfo(string path)
+        {
+            OrderLocationInfo = new Dictionary<string, Dictionary<int, int>>();
+            using (StreamReader sr = new StreamReader(path))
+            {
+                // get all sectors as keys
+                var firstLine = sr.ReadLine().Split(',');
+                foreach (var letter in firstLine)
+                {
+                    OrderLocationInfo.Add(letter, new Dictionary<int, int>());
+                }
+                int count = 0;
+                // go through sector:rows and add cost
+                while (!sr.EndOfStream)
+                {
+                    var line = sr.ReadLine().Split(' ');
+                    for (int i = 0; i < line.Count(); ++i)
+                    {
+                        var data = line[i].Split(':');
+                        OrderLocationInfo[data[0]].Add(int.Parse(data[1]), count++);
+                    }
+                }
+            }
         }
 
         #endregion
@@ -225,38 +258,42 @@ namespace RAWSimO.Core
         /// <param name="turnSpeed">The time it takes the bot to take a full turn in s.</param>
         /// <param name="collisionPenaltyTime">The penalty time for a collision in s.</param>
         /// <returns>The newly created bot.</returns>
-        public Bot CreateBot(int id, Tier tier, double x, double y, double radius, double orientation, double podTransferTime, double maxAcceleration, double maxDeceleration, double maxVelocity, double turnSpeed, double collisionPenaltyTime)
+        public Bot CreateBot(int id, Tier tier, double x, double y, double radius, double orientation, 
+            double podTransferTime, double maxAcceleration, double maxDeceleration, double maxVelocity, double turnSpeed, 
+            double collisionPenaltyTime, BotType type, double hue, List<string> zones)
         {
-            // Consider override values
-            if (SettingConfig.OverrideConfig != null && SettingConfig.OverrideConfig.OverrideBotPodTransferTime)
-                podTransferTime = SettingConfig.OverrideConfig.OverrideBotPodTransferTimeValue;
-            if (SettingConfig.OverrideConfig != null && SettingConfig.OverrideConfig.OverrideBotMaxAcceleration)
-                maxAcceleration = SettingConfig.OverrideConfig.OverrideBotMaxAccelerationValue;
-            if (SettingConfig.OverrideConfig != null && SettingConfig.OverrideConfig.OverrideBotMaxDeceleration)
-                maxDeceleration = SettingConfig.OverrideConfig.OverrideBotMaxDecelerationValue;
-            if (SettingConfig.OverrideConfig != null && SettingConfig.OverrideConfig.OverrideBotMaxVelocity)
-                maxVelocity = SettingConfig.OverrideConfig.OverrideBotMaxVelocityValue;
-            if (SettingConfig.OverrideConfig != null && SettingConfig.OverrideConfig.OverrideBotTurnSpeed)
-                turnSpeed = SettingConfig.OverrideConfig.OverrideBotTurnSpeedValue;
             // Init
             Bot bot = null;
-            switch (ControllerConfig.PathPlanningConfig.GetMethodType())
-            {
-                case PathPlanningMethodType.Simple:
-                    bot = new BotHazard(this, ControllerConfig.PathPlanningConfig as SimplePathPlanningConfiguration);
-                    break;
-                case PathPlanningMethodType.Dummy:
-                case PathPlanningMethodType.WHCAvStar:
-                case PathPlanningMethodType.WHCAnStar:
-                case PathPlanningMethodType.FAR:
-                case PathPlanningMethodType.BCP:
-                case PathPlanningMethodType.OD_ID:
-                case PathPlanningMethodType.CBS:
-                case PathPlanningMethodType.PAS:
-                    bot = new BotNormal(id, this, radius, podTransferTime, maxAcceleration, maxDeceleration, maxVelocity, turnSpeed, collisionPenaltyTime, x, y);
-                    break;
-                default: throw new ArgumentException("Unknown path planning engine: " + ControllerConfig.PathPlanningConfig.GetMethodType());
+            MovableStation ms = null;
+            MateBot mb = null;
+            if (type == BotType.MovableStation) {
+                ms = new MovableStation(id, this, radius, maxAcceleration, maxDeceleration, maxVelocity, turnSpeed, collisionPenaltyTime, x, y);
+                bot = ms;
             }
+            else if (type == BotType.MateBot)
+            {
+                mb = new MateBot(id, this, radius, maxAcceleration, maxDeceleration, maxVelocity, turnSpeed, collisionPenaltyTime, x, y);
+                bot = mb;
+            }else{
+                switch (ControllerConfig.PathPlanningConfig.GetMethodType())
+                {
+                    case PathPlanningMethodType.Simple:
+                        bot = new BotHazard(this, ControllerConfig.PathPlanningConfig as SimplePathPlanningConfiguration);
+                        break;
+                    case PathPlanningMethodType.Dummy:
+                    case PathPlanningMethodType.WHCAvStar:
+                    case PathPlanningMethodType.WHCAnStar:
+                    case PathPlanningMethodType.FAR:
+                    case PathPlanningMethodType.BCP:
+                    case PathPlanningMethodType.OD_ID:
+                    case PathPlanningMethodType.CBS:
+                    case PathPlanningMethodType.PAS:
+                        bot = new BotNormal(id, this, radius, podTransferTime, maxAcceleration, maxDeceleration, maxVelocity, turnSpeed, collisionPenaltyTime, x, y);
+                        break;
+                    default: throw new ArgumentException("Unknown path planning engine: " + ControllerConfig.PathPlanningConfig.GetMethodType());
+                }
+            }
+            
             // Set values
             bot.ID = id;
             bot.Tier = tier;
@@ -271,13 +308,36 @@ namespace RAWSimO.Core
             bot.TurnSpeed = turnSpeed;
             bot.CollisionPenaltyTime = collisionPenaltyTime;
             bot.Orientation = orientation;
+            bot.botHue = hue;
+            bot.Zones = zones;
+
             if (bot is BotHazard)
             {
                 ((BotHazard)bot).EvadeDistance = 2.3 * radius;
                 ((BotHazard)bot).SetTargetOrientation(orientation);
             }
             // Add bot
-            Bots.Add(bot);
+            //if MovableStation was created
+            if (ms != null)
+            {
+                ms.Capacity = 1000;
+                Bots.Add(ms);
+                //bot was referencing only bot-part of movable station and those values were updated
+                MovableStations.Add(ms);
+            }
+            //if MateBot was created
+            else if (mb != null)
+            {
+                bot.Radius *= 0.65;
+                Bots.Add(mb);
+                MateBots.Add(mb);
+            }
+            //if NormalBot or BotHazzard were created
+            else
+            {
+                Bots.Add(bot);
+            }
+
             tier.AddBot(bot);
             _idToBots[bot.ID] = bot;
             // Determine volatile ID
@@ -333,13 +393,13 @@ namespace RAWSimO.Core
         /// <param name="orientation">The initial orientation of the pod.</param>
         /// <param name="capacity">The capacity of the pod.</param>
         /// <returns>The newly created pod.</returns>
-        public Pod CreatePod(int id, Tier tier, double x, double y, double radius, double orientation, double capacity)
+        public Pod CreatePod(int id, Tier tier, double x, double y, double radius, double horizontal_length, double vertical_length, double orientation, double capacity)
         {
             // Consider override values
             if (SettingConfig.OverrideConfig != null && SettingConfig.OverrideConfig.OverridePodCapacity)
                 capacity = SettingConfig.OverrideConfig.OverridePodCapacityValue;
             // Create the pod
-            Pod pod = new Pod(this) { ID = id, Tier = tier, Radius = radius, X = x, Y = y, Orientation = orientation, Capacity = capacity };
+            Pod pod = new Pod(this) { ID = id, Tier = tier, Radius = radius, HorizontalLength = horizontal_length, VerticalLength = vertical_length, X = x, Y = y, Orientation = orientation, Capacity = capacity };
             Pods.Add(pod);
             tier.AddPod(pod);
             _idToPods[pod.ID] = pod;
@@ -360,13 +420,13 @@ namespace RAWSimO.Core
         /// <param name="orientation">The initial orientation of the pod.</param>
         /// <param name="capacity">The capacity of the pod.</param>
         /// <returns>The newly created pod.</returns>
-        public Pod CreatePod(int id, Tier tier, Waypoint waypoint, double radius, double orientation, double capacity)
+        public Pod CreatePod(int id, Tier tier, Waypoint waypoint, double radius, double horizontal_length, double vertical_length, double orientation, double capacity)
         {
             // Consider override values
             if (SettingConfig.OverrideConfig != null && SettingConfig.OverrideConfig.OverridePodCapacity)
                 capacity = SettingConfig.OverrideConfig.OverridePodCapacityValue;
             // Create the pod
-            Pod pod = new Pod(this) { ID = id, Tier = tier, Radius = radius, X = waypoint.X, Y = waypoint.Y, Orientation = orientation, Capacity = capacity, Waypoint = waypoint };
+            Pod pod = new Pod(this) { Zone = waypoint.Zone, Address = waypoint.Address, ID = id, Tier = tier, Radius = radius, HorizontalLength = horizontal_length, VerticalLength = vertical_length, X = waypoint.X, Y = waypoint.Y, Orientation = orientation, Capacity = capacity, Waypoint = waypoint };
             Pods.Add(pod);
             tier.AddPod(pod);
             _idToPods[pod.ID] = pod;
@@ -409,6 +469,102 @@ namespace RAWSimO.Core
             Elevators.Add(elevator);
             _idToElevators[elevator.ID] = elevator;
             return elevator;
+        }
+
+        #endregion
+
+        #region InputPalletStand
+
+        /// <summary>
+        /// Current ID to identify the corresponding instance element.
+        /// </summary>
+        private int _inputPalletStandID;
+        /// <summary>
+        /// Registers and returns a new ID for an object of the given type.
+        /// </summary>
+        /// <returns>A new unique ID that can be used to identify the object.</returns>
+        public int RegisterInputPalletStandID()
+        {
+            if (InputPalletStands.Any() && _inputPalletStandID <= InputPalletStands.Max(e => e.ID)) { _inputPalletStandID = InputPalletStands.Max(e => e.ID) + 1; }
+            return _inputPalletStandID++;
+        }
+        /// <summary>
+        /// All volative IDs used for input pallet stands so far.
+        /// </summary>
+        private HashSet<int> _volatileInputPalletStandIDs = new HashSet<int>();
+        /// <summary>
+        /// Creates a new input pallet stand
+        /// </summary>
+        /// <param name="id">The ID of the input pallet stand.</param>
+        /// <param name="tier">The position (tier).</param>
+        /// <param name="x">The position (x-coordinate).</param>
+        /// <param name="y">The position (y-coordinate).</param>
+        /// <param name="radius">The radius of the stand.</param>
+        /// <param name="activationOrderID">The order ID of the stand that defines the sequence in which the stands have to be activated.</param>
+        /// <returns>The newly created input station.</returns>
+        public InputPalletStand CreateInputPalletStand(int id, Tier tier, double x, double y, double radius, int activationOrderID)
+        {
+            InputPalletStand palletStand = new InputPalletStand(this)
+            { ID = id, Tier = tier, Radius = radius, X = x, Y = y, ActivationOrderID = activationOrderID };
+            palletStand.Queues = new Dictionary<Waypoint, List<Waypoint>>();
+            InputPalletStands.Add(palletStand);
+            InputStations.Add(palletStand);
+            tier.AddInputPalletStand(palletStand);
+            _idToInputPalletStands[palletStand.ID] = palletStand;
+            // Determine volatile ID
+            int volatileID = 0;
+            while (_volatileInputPalletStandIDs.Contains(volatileID)) { volatileID++; }
+            palletStand.VolatileID = volatileID;
+            _volatileInputPalletStandIDs.Add(palletStand.VolatileID);
+            return palletStand;
+        }
+
+        #endregion
+
+        #region OutputPalletStand
+
+        /// <summary>
+        /// Current ID to identify the corresponding instance element.
+        /// </summary>
+        private int _outputPalletStandID;
+        /// <summary>
+        /// Registers and returns a new ID for an object of the given type.
+        /// </summary>
+        /// <returns>A new unique ID that can be used to identify the object.</returns>
+        public int RegisterOutputPalletStandID()
+        {
+            if (OutputPalletStands.Any() && _outputPalletStandID <= OutputPalletStands.Max(e => e.ID)) { _outputPalletStandID = OutputPalletStands.Max(e => e.ID) + 1; }
+            return _outputPalletStandID++;
+        }
+        /// <summary>
+        /// All volative IDs used for output pallet stands so far.
+        /// </summary>
+        private HashSet<int> _volatileOutputPalletStandIDs = new HashSet<int>();
+        /// <summary>
+        /// Creates a new output pallet stand
+        /// </summary>
+        /// <param name="id">The ID of the output pallet stand.</param>
+        /// <param name="tier">The position (tier).</param>
+        /// <param name="x">The position (x-coordinate).</param>
+        /// <param name="y">The position (y-coordinate).</param>
+        /// <param name="radius">The radius of the stand.</param>
+        /// <param name="activationOrderID">The order ID of the stand that defines the sequence in which the stands have to be activated.</param>
+        /// <returns>The newly created input station.</returns>
+        public OutputPalletStand CreateOutputPalletStand(int id, Tier tier, double x, double y, double radius, int activationOrderID)
+        {
+            OutputPalletStand palletStand = new OutputPalletStand(this)
+            { ID = id, Tier = tier, Radius = radius, X = x, Y = y, ActivationOrderID = activationOrderID };
+            palletStand.Queues = new Dictionary<Waypoint, List<Waypoint>>();
+            OutputPalletStands.Add(palletStand);
+            OutputStations.Add(palletStand);
+            tier.AddOutputPalletStand(palletStand);
+            _idToOutputPalletStands[palletStand.ID] = palletStand;
+            // Determine volatile ID
+            int volatileID = 0;
+            while (_volatileOutputPalletStandIDs.Contains(volatileID)) { volatileID++; }
+            palletStand.VolatileID = volatileID;
+            _volatileOutputPalletStandIDs.Add(palletStand.VolatileID);
+            return palletStand;
         }
 
         #endregion
@@ -554,6 +710,69 @@ namespace RAWSimO.Core
             waypoint.VolatileID = volatileID;
             _volatileWaypointIDs.Add(waypoint.VolatileID);
         }
+
+        /// <summary>
+        /// Returns X,Y coordinates for row,col of the waypoint
+        /// </summary>
+        /// <param name="row"></param>
+        /// <param name="col"></param>
+        /// <param name="X"></param>
+        /// <param name="Y"></param>
+        /// <returns></returns>
+        public void RowColToXY(int row, int col, out double X, out double Y)
+        {
+            if (row >= MapRowCount || row < 0 || col >= MapColumnCount || col < 0)
+            {
+                X = double.NaN;
+                Y = double.NaN;
+                throw new ArgumentException("Invalid (row,col): " + row + ", " + col);
+            }
+            //X = lc.HorizontalWaypointDistance * col;
+            //Y = lc.VerticalWaypointDistance * row;
+            X = col * layoutConfiguration.HorizontalWaypointDistance + layoutConfiguration.HorizontalWaypointDistance / 2;
+            Y = row * layoutConfiguration.VerticalWaypointDistance + layoutConfiguration.VerticalWaypointDistance / 2;
+        }
+
+        /// <summary>
+        /// Returns row,col coordinates for X,Y of the waypoint
+        /// </summary>
+        /// <param name="row"></param>
+        /// <param name="col"></param>
+        /// <param name="X"></param>
+        /// <param name="Y"></param>
+        /// <returns></returns>
+        public bool XYToRowCol(double X, double Y, out int row, out int col)
+        {
+            X -= layoutConfiguration.HorizontalWaypointDistance / 2;
+            Y -= layoutConfiguration.VerticalWaypointDistance / 2;
+            if (X > MapHorizontalLength || X < 0.0 || (decimal)X % (decimal)layoutConfiguration.HorizontalWaypointDistance != (decimal)0.0 || 
+                Y > MapVerticalLength   || Y < 0.0 || (decimal)Y % (decimal)layoutConfiguration.VerticalWaypointDistance != (decimal)0.0 )
+            {
+                row = -1;
+                col = -1;
+                throw new ArgumentException("Invalid (X,Y): " + X + ", " + Y);
+            }
+            row = (int)Math.Round(Y / layoutConfiguration.VerticalWaypointDistance);
+            col = (int) Math.Round(X / layoutConfiguration.HorizontalWaypointDistance);
+
+            return true;
+        }
+
+        /// <summary>
+        /// Find the waypoint exactly at X,Y or closest to it
+        /// </summary>
+        /// <param name=""></param>
+        /// <param name=""></param>
+        /// <returns></returns>
+        public Waypoint FindWpFromXY(double X, double Y)
+        {
+            // find X,Y of the closest waypoint
+            X = WaypointXs.BinaryFindClosest(X);
+            Y = WaypointYs.BinaryFindClosest(Y);
+            var wp = Waypoints_dict[X][Y];
+            return wp;
+        }
+
         /// <summary>
         /// Creates a new waypoint that serves as the handover point for an input station.
         /// </summary>
@@ -576,6 +795,27 @@ namespace RAWSimO.Core
             return wp;
         }
         /// <summary>
+        /// Creates a new waypoint that serves as the handover point for an input pallet stand.
+        /// </summary>
+        /// <param name="id">The ID of the waypoint.</param>
+        /// <param name="tier">The position (tier).</param>
+        /// <param name="stand">The pallet stand.</param>
+        /// <param name="isQueueWaypoint">Indicates whether this waypoint is also a queue waypoint.</param>
+        /// <returns>The newly created waypoint.</returns>
+        public Waypoint CreateWaypoint(int id, Tier tier, InputPalletStand stand, bool isQueueWaypoint)
+        {
+            Waypoint wp = new Waypoint(this) { ID = id, X = stand.X, Y = stand.Y, Radius = stand.Radius, InputPalletStand = stand, IsQueueWaypoint = isQueueWaypoint };
+            stand.Waypoint = wp;
+            tier.AddWaypoint(wp);
+            Waypoints.Add(wp);
+            WaypointGraph.Add(wp);
+            _idToWaypoint[wp.ID] = wp;
+            // Set volatile ID
+            SetVolatileIDForWaypoint(wp);
+            // Return
+            return wp;
+        }
+        /// <summary>
         /// Creates a new waypoint that serves as the handover point for an output station.
         /// </summary>
         /// <param name="id">The ID of the waypoint.</param>
@@ -587,6 +827,27 @@ namespace RAWSimO.Core
         {
             Waypoint wp = new Waypoint(this) { ID = id, X = station.X, Y = station.Y, Radius = station.Radius, OutputStation = station, IsQueueWaypoint = isQueueWaypoint };
             station.Waypoint = wp;
+            tier.AddWaypoint(wp);
+            Waypoints.Add(wp);
+            WaypointGraph.Add(wp);
+            _idToWaypoint[wp.ID] = wp;
+            // Set volatile ID
+            SetVolatileIDForWaypoint(wp);
+            // Return
+            return wp;
+        }
+        /// <summary>
+        /// Creates a new waypoint that serves as the handover point for an output pallet stand.
+        /// </summary>
+        /// <param name="id">The ID of the waypoint.</param>
+        /// <param name="tier">The position (tier).</param>
+        /// <param name="station">The station.</param>
+        /// <param name="isQueueWaypoint">Indicates whether this waypoint is also a queue waypoint.</param>
+        /// <returns>The newly created waypoint.</returns>
+        public Waypoint CreateWaypoint(int id, Tier tier, OutputPalletStand stand, bool isQueueWaypoint)
+        {
+            Waypoint wp = new Waypoint(this) { ID = id, X = stand.X, Y = stand.Y, Radius = stand.Radius, OutputPalletStand = stand, IsQueueWaypoint = isQueueWaypoint };
+            stand.Waypoint = wp;
             tier.AddWaypoint(wp);
             Waypoints.Add(wp);
             WaypointGraph.Add(wp);
@@ -660,6 +921,55 @@ namespace RAWSimO.Core
             // Return
             return wp;
         }
+        /// <summary>
+        /// Creates waypoint with zone.
+        /// </summary>
+        /// <param name="id"></param>
+        /// <param name="tier"></param>
+        /// <param name="x"></param>
+        /// <param name="y"></param>
+        /// <param name="podStorageLocation"></param>
+        /// <param name="isQueueWaypoint"></param>
+        /// <param name="zone"></param>
+        /// <param name="row"></param>
+        /// <param name="column"></param>
+        /// <returns></returns>
+        public Waypoint CreateWaypoint(int id, Tier tier, double x, double y, bool podStorageLocation, bool isQueueWaypoint, string zone)
+        {
+            Waypoint wp = new Waypoint(this) { ID = id, Tier = tier, X = x, Y = y, PodStorageLocation = podStorageLocation, IsQueueWaypoint = isQueueWaypoint, Zone = zone};
+            tier.AddWaypoint(wp);
+            Waypoints.Add(wp);
+            WaypointGraph.Add(wp);
+            _idToWaypoint[wp.ID] = wp;
+            // Set volatile ID
+            SetVolatileIDForWaypoint(wp);
+            // Return
+            return wp;
+        }
+        /// <summary>
+        /// Creates waypoint with address and zone.
+        /// </summary>
+        /// <param name="id"></param>
+        /// <param name="tier"></param>
+        /// <param name="x"></param>
+        /// <param name="y"></param>
+        /// <param name="podStorageLocation"></param>
+        /// <param name="isQueueWaypoint"></param>
+        /// <param name="address"></param>
+        /// <param name="zone"></param>
+        /// <returns></returns>
+        public Waypoint CreateWaypoint(int id, Tier tier, double x, double y, bool podStorageLocation, bool isQueueWaypoint, string address, string zone)
+        {
+            Waypoint wp = new Waypoint(this) { ID = id, Tier = tier, X = x, Y = y, PodStorageLocation = podStorageLocation, IsQueueWaypoint = isQueueWaypoint, Address = address, Zone = zone };
+            tier.AddWaypoint(wp);
+            Waypoints.Add(wp);
+            WaypointGraph.Add(wp);
+            _idToWaypoint[wp.ID] = wp;
+            // Set volatile ID
+            SetVolatileIDForWaypoint(wp);
+            // Return
+            return wp;
+        }
 
         #endregion
 
@@ -714,15 +1024,6 @@ namespace RAWSimO.Core
             {
                 instanceElement.Instance = this;
             }
-
-            //TODO:why is the code below commented out??
-
-            //// Generate Waypointgraph
-            //WaypointGraph = new WaypointGraph();
-            //foreach (var waypoint in Waypoints)
-            //{
-            //    WaypointGraph.Add(waypoint);
-            //}
         }
 
         #endregion
@@ -744,6 +1045,49 @@ namespace RAWSimO.Core
         {
             // Call all subscribers
             LateInit?.Invoke();
+
+            if (SettingConfig.BotLocations == BotLocations.Random)
+            {
+                var writer = new StreamWriter($"{this.CreatedAtString}.bots");
+                foreach (var bot in MovableStations)
+                {
+                    writer.WriteLine($"{bot.X},{bot.Y},{bot.Orientation}");
+                }
+                foreach (var bot in MateBots)
+                {
+                    writer.WriteLine($"{bot.X},{bot.Y},{bot.Orientation}");
+                }
+                writer.Close();
+            }
+
+            if (SettingConfig.InventoryConfiguration.OrderMode == OrderMode.Fill)
+            {
+                var writer = new StreamWriter($"{this.CreatedAtString}.orders");
+                foreach (var order in ItemManager.AvailableOrders)
+                {
+                    bool isFirstItem = true;
+                    foreach (var position in order.Positions)
+                    {
+                        var separator = isFirstItem ? "" : ",";
+
+                        var item = position.Key;
+                        var waypoint = GetWaypointByID(item.ID);
+                        var pickupDuration = order.Times[item];
+
+                        writer.Write($"{separator}{waypoint.X},{waypoint.Y},{pickupDuration}");
+
+                        isFirstItem = false;
+                    }
+                    writer.WriteLine();
+                }
+                writer.Close();
+            }
+
+            {
+                var writer = new StreamWriter($"{this.CreatedAtString}.seed");
+                writer.WriteLine(this.Randomizer.Seed());
+                writer.Close();
+            }
         }
 
         #endregion

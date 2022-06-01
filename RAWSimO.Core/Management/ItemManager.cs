@@ -1,5 +1,4 @@
 ﻿using RAWSimO.Core.Configurations;
-using RAWSimO.Core.Control;
 using RAWSimO.Core.Elements;
 using RAWSimO.Core.Info;
 using RAWSimO.Core.Interfaces;
@@ -11,8 +10,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace RAWSimO.Core.Management
 {
@@ -73,6 +70,17 @@ namespace RAWSimO.Core.Management
         /// The next timestamp at which a bundle is generated when in poisson mode.
         /// </summary>
         private double _nextPoissonBundleGenerationTime;
+        /// <summary>
+        /// The timestamp when the last addition from future to available orders was made.
+        /// Used for Fixed order mode and order batching
+        /// </summary>
+        private double _lastFillTime;
+        /// <summary>
+        /// Random number generator
+        /// </summary>
+        private Random _rand = new Random();
+        /// <summary>
+
         /// <summary>
         /// The instance this manager belongs to.
         /// </summary>
@@ -340,13 +348,15 @@ namespace RAWSimO.Core.Management
                             #region Initialization for simple items
 
                             // Read resource config file
-                            _simpleItemGeneratorConfig = InstanceIO.ReadSimpleItemGeneratorConfig(Instance.SettingConfig.InventoryConfiguration.SimpleItemConfiguration.GeneratorConfigFile);
+                            _simpleItemGeneratorConfig = InstanceIO.ReadSimpleItemGeneratorConfig(Instance.SettingConfig.InventoryConfiguration.SimpleItemConfiguration.GeneratorConfigFile, Instance);
 
                             // Read all item-descriptions
                             Dictionary<int, ItemDescription> itemDescriptionsByID = new Dictionary<int, ItemDescription>();
+                            var PodIDs = Instance.WaypointGraph.GetPodPositions().Select(wp => wp.ID).Shuffle().ToArray();
                             foreach (var serializedDescription in _simpleItemGeneratorConfig.ItemDescriptions.OrderBy(d => d.Key))
                             {
-                                SimpleItemDescription description = Instance.CreateItemDescription(serializedDescription.Key, ItemType.SimpleItem) as SimpleItemDescription;
+                                // Assign item locations (ID in itemDescription) to be on storage pods
+                                SimpleItemDescription description = Instance.CreateItemDescription(PodIDs[serializedDescription.Key], ItemType.SimpleItem) as SimpleItemDescription;
                                 // Check whether weights are specified by the config or have to be generated
                                 description.Weight = _simpleItemGeneratorConfig.ItemDescriptionWeights != null && _simpleItemGeneratorConfig.ItemDescriptionWeights.Count > 0 ?
                                     // Use the weight given by the config
@@ -361,7 +371,7 @@ namespace RAWSimO.Core.Management
                                     Instance.Randomizer.NextInt(Instance.SettingConfig.InventoryConfiguration.BundleSizeMin, Instance.SettingConfig.InventoryConfiguration.BundleSizeMax);
                                 description.Hue = serializedDescription.Value;
                                 _itemDescriptions.Add(description);
-                                itemDescriptionsByID[description.ID] = description;
+                                itemDescriptionsByID[serializedDescription.Key] = description;
                             }
 
                             // Set item probabilities
@@ -486,8 +496,11 @@ namespace RAWSimO.Core.Management
                                     InitializeBundlesAndOrdersRandomly(
                                         _downPeriodActiveForBundles ? 0 : Instance.SettingConfig.InventoryConfiguration.DemandInventoryConfiguration.BundleCount,
                                         _downPeriodActiveForOrders ? 0 : Instance.SettingConfig.InventoryConfiguration.DemandInventoryConfiguration.OrderCount);
-
                                     #endregion
+                                    if (Instance.SettingConfig.OrderCountStopCondition == -1)
+                                        Instance.SettingConfig.OrderCountStopCondition = Instance.SettingConfig.InventoryConfiguration.DemandInventoryConfiguration.OrderCount;
+                                    else
+                                        Instance.SettingConfig.ManualOrderCountStopCondition = true;
                                 }
                                 break;
                             default:
@@ -666,8 +679,7 @@ namespace RAWSimO.Core.Management
                         #region Fixed mode initialization
 
                         // --> Parse the list of orders
-                        InstanceIO.ReadOrders(Instance.SettingConfig.InventoryConfiguration.FixedInventoryConfiguration.OrderFile, Instance);
-
+                        InstanceIO.ReadOrdersFromFile(Instance.SettingConfig.InventoryConfiguration.FixedInventoryConfiguration.OrderFile, Instance);
                         // --> Init the fixed order mode
                         // Add item descriptions
                         _itemDescriptions.AddRange(Instance.OrderList.ItemDescriptions);
@@ -676,16 +688,21 @@ namespace RAWSimO.Core.Management
                         // Copy over bundle list
                         _futureBundles.AddRange(Instance.OrderList.Bundles.OrderBy(b => b.TimeStamp));
                         // Set probabilites for random bundle generation
-                        _itemDescriptionProbabilities = new VolatileIDDictionary<ItemDescription, double>(_itemDescriptions.Select(i => new VolatileKeyValuePair<ItemDescription, double>(i, 0)).ToList());
+                        //_itemDescriptionProbabilities = new VolatileIDDictionary<ItemDescription, double>(_itemDescriptions.Select(i => new VolatileKeyValuePair<ItemDescription, double>(i, 0)).ToList());
+                        //_itemDescriptionProbabilities = new VolatileIDDictionary<ItemDescription, double>(null);
                         int itemsOrderedOverall = _futureOrders.Sum(o => o.Positions.Sum(p => p.Value));
-                        foreach (var itemDescription in _itemDescriptions)
-                            _itemDescriptionProbabilities[itemDescription] = _futureOrders.SelectMany(o => o.Positions).Where(p => p.Key == itemDescription).Sum(p => p.Value) / (double)itemsOrderedOverall;
+                        //foreach (var itemDescription in _itemDescriptions)
+                            //_itemDescriptionProbabilities[itemDescription] = _futureOrders.SelectMany(o => o.Positions).Where(p => p.Key == itemDescription).Sum(p => p.Value) / (double)itemsOrderedOverall;
                         // Set requirements so that all future orders can be fulfilled (when using Letter-items)
-                        foreach (var itemDescription in _itemDescriptions)
-                            _itemDemandInformation[itemDescription] = _futureOrders.SelectMany(o => o.Positions).Where(p => p.Key == itemDescription).Sum(p => p.Value);
+                        //foreach (var itemDescription in _itemDescriptions)
+                           // _itemDemandInformation[itemDescription] = _futureOrders.SelectMany(o => o.Positions).Where(p => p.Key == itemDescription).Sum(p => p.Value);
                         // Generate random pod content
-                        InitializePodContentsRandomly(Instance.SettingConfig.InventoryConfiguration.InitialInventory);
-
+                        //InitializePodContentsRandomly(Instance.SettingConfig.InventoryConfiguration.InitialInventory);
+                        //Adjust breaking condition if needed
+                        if (Instance.SettingConfig.OrderCountStopCondition == -1)
+                            Instance.SettingConfig.OrderCountStopCondition = Instance.OrderList.Orders.Count;
+                        else
+                            Instance.SettingConfig.ManualOrderCountStopCondition = true;
                         #endregion
                     }
                     break;
@@ -1145,7 +1162,7 @@ namespace RAWSimO.Core.Management
         {
             // Init
             IRandomizer rand = Instance.Randomizer;
-            Order order = new Order();
+            Order order = new Order(Instance.GetDropWaypointFromAddress(""));
             // Set the time as if the order was placed right now
             order.TimeStamp = Instance.Controller == null ? 0.0 : Instance.Controller.CurrentTime;
             // Set a random due time as an offset off the time at which the order is placed, hence: now + offset
@@ -1228,12 +1245,8 @@ namespace RAWSimO.Core.Management
                         int orderPositionCount = Instance.SettingConfig.InventoryConfiguration.OrderPositionCountMin == Instance.SettingConfig.InventoryConfiguration.OrderPositionCountMax ?
                             // If min == max return it
                             Instance.SettingConfig.InventoryConfiguration.OrderPositionCountMin :
-                            // Elsewise get a normally distributed number
-                            Instance.Randomizer.NextNormalInt(
-                                Instance.SettingConfig.InventoryConfiguration.OrderPositionCountMean,
-                                Instance.SettingConfig.InventoryConfiguration.OrderPositionCountStdDev,
-                                Instance.SettingConfig.InventoryConfiguration.OrderPositionCountMin,
-                                Instance.SettingConfig.InventoryConfiguration.OrderPositionCountMax);
+                            // Elsewise get a Gamma distributed number
+                            (int)Math.Round(Instance.Randomizer.NextGammaDouble(kParam, thetaParam, 1, Instance.PodCount < 100 ? Instance.PodCount - 10 : 100));
                         // Add remaining positions
                         ItemDescription chosenDescription; ItemDescription lastChosenDescription = null;
                         for (int i = 0; i < orderPositionCount; i++)
@@ -1253,6 +1266,7 @@ namespace RAWSimO.Core.Management
                                 .Except(order.Positions.Select(p => p.Key)) // Do not use items already in the order
                                 .Where(d => Instance.StockInfo.GetAvailableStock(d) >= positionCount) // Do not use inventory that is out-of-stock
                                 .ToArray(); // Put it in an array for fast access
+
                             // If there is not enough inventory at all - return nothing
                             if (!availableInventory.Any())
                                 return null;
@@ -1299,7 +1313,40 @@ namespace RAWSimO.Core.Management
             // Return
             return order;
         }
+        /// <summary>
+        /// Kappa parameter used for Gamma distribution sampling
+        /// </summary>
+        private static readonly double kParam = 0.946;
+        /// <summary>
+        /// Theta parameter used for Gamma distribution sampling
+        /// </summary>
+        private static readonly double thetaParam = 15.281;
 
+        /// <summary>
+        /// Determines the size of the next order batch
+        /// According to the Poisson distribution.
+        /// </summary>
+        /// <returns>int size of the batch</returns>
+        private int GetPoissonNumberOfOrders()
+        {
+            int noOrders = 0;
+            int factorial = 1;
+            double target_probability = _rand.NextDouble();
+            double sumFactorials = 0;
+            double lambdaPowK = 1;
+            double lambda = Instance.SettingConfig.InventoryConfiguration.AverageNumberOfOrders;
+            double expMinusLambda = Math.Pow(Math.E, -lambda);
+            do
+            {
+                if (noOrders > 1) factorial *= noOrders;
+                sumFactorials += lambdaPowK / factorial;
+                lambdaPowK *= lambda;
+                ++noOrders;
+            } while (sumFactorials* expMinusLambda < target_probability);
+            --noOrders;
+
+            return noOrders;
+        }
         #endregion
 
         #region Actions
@@ -1476,7 +1523,10 @@ namespace RAWSimO.Core.Management
         /// </summary>
         /// <returns>The orders already completed.</returns>
         public IEnumerable<IOrderInfo> GetInfoCompletedOrders() { lock (_syncRoot) { return _completedOrders.ToList(); } }
-
+        /// <summary>
+        /// Number of completed orders (for public use)
+        /// </summary>
+        public int CompletedOrdersCount => _completedOrders.Count;
         #endregion
 
         #region IUpdateable Members
@@ -1676,6 +1726,10 @@ namespace RAWSimO.Core.Management
                     {
                         #region Fill mode update
 
+                        //Fill once
+                        if (Instance.SettingConfig.InventoryConfiguration.FillOnce)
+                            break;
+
                         // Order generation allowed?
                         if (// Check whether order generation currently fails and is blocked temporarily
                             _orderGenerationBlockedUntil < currentTime &&
@@ -1860,6 +1914,22 @@ namespace RAWSimO.Core.Management
                         {
                             // Place all new orders
                             List<Order> newOrders = _futureOrders.TakeWhile(o => o.TimeStamp <= currentTime).ToList();
+
+                            if (Instance.SettingConfig.InventoryConfiguration.UseOrderBatching)
+                            {
+                                if (_lastFillTime == 0.0 ||
+                                    currentTime - _lastFillTime > Instance.SettingConfig.InventoryConfiguration.BatchingTimeInterval)
+                                {
+                                    int noOrders = (int) Math.Floor(Instance.SettingConfig.InventoryConfiguration.AverageNumberOfOrders);
+                                    if (Instance.SettingConfig.InventoryConfiguration.UsePoissonBatching)
+                                        noOrders = GetPoissonNumberOfOrders();
+                                    if (newOrders.Count < noOrders) noOrders = newOrders.Count;
+                                    newOrders = newOrders.Take(noOrders).ToList();
+                                    _lastFillTime = currentTime;
+                                }
+                                else break;
+                            }
+
                             foreach (var order in newOrders)
                                 _availableOrders.Add(order);
                             _futureOrders.RemoveRange(0, newOrders.Count);
@@ -1889,6 +1959,7 @@ namespace RAWSimO.Core.Management
                         #endregion
                     }
                     break;
+
                 default: throw new ArgumentException("Unknown order-mode: " + Instance.SettingConfig.InventoryConfiguration.OrderMode.ToString());
             }
         }
@@ -1911,34 +1982,5 @@ namespace RAWSimO.Core.Management
 
         #endregion
 
-        #region Debug stuff
-
-        // TODO remove debug again
-        private void OrderAnalyzer()
-        {
-            Console.WriteLine("StockInfo:");
-            Dictionary<ItemDescription, int> actualStock = Instance.ItemDescriptions.ToDictionary(k => k, v => Instance.Pods.Sum(p => p.CountContained(v)));
-            Dictionary<ItemDescription, int> availableOrdersDemand = _availableOrders.SelectMany(o => o.Positions).GroupBy(p => p.Key).ToDictionary(g => g.Key, v => v.Sum(p => p.Value));
-            Dictionary<ItemDescription, int> allocatedOrdersDemand = Instance.OutputStations.SelectMany(o => o.AssignedOrders).SelectMany(o => o.Positions).GroupBy(p => p.Key).ToDictionary(g => g.Key, v => v.Sum(p => p.Value));
-            Console.WriteLine(
-                        "ItemDescription: " +
-                        "availOrdersDemand/" +
-                        "allocatedOrdersDemand/" +
-                        "actualStock/" +
-                        "availStock/" +
-                        "measuredStock");
-            foreach (var description in availableOrdersDemand.Keys.OrderBy(k => k.ID))
-            {
-                Console.WriteLine(
-                        description.ToDescriptiveString() + ": " +
-                        (availableOrdersDemand.ContainsKey(description) ? availableOrdersDemand[description].ToString() : "na") + "/" +
-                        (allocatedOrdersDemand.ContainsKey(description) ? allocatedOrdersDemand[description].ToString() : "na") + "/" +
-                        Instance.StockInfo.GetActualStock(description) + "/" +
-                        Instance.StockInfo.GetAvailableStock(description) + "/" +
-                        actualStock[description]);
-            }
-        }
-
-        #endregion
     }
 }

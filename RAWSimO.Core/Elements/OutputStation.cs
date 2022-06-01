@@ -27,7 +27,7 @@ namespace RAWSimO.Core.Elements
         /// Creates a new output-station.
         /// </summary>
         /// <param name="instance">The instance this station belongs to.</param>
-        internal OutputStation(Instance instance) : base(instance) { }
+        internal OutputStation(Instance instance) : base(instance) {}
 
         #endregion
 
@@ -62,36 +62,6 @@ namespace RAWSimO.Core.Elements
         }
 
         /// <summary>
-        /// The time it takes to pick one item from a pod and put it into the order tote.
-        /// </summary>
-        public double ItemTransferTime;
-
-        /// <summary>
-        /// The time it takes to pick one item from a pod (excluding the time it takes to put it into a tote - after this the robot is free to leave, if it does not have other items to be picked).
-        /// </summary>
-        public double ItemPickTime;
-
-        /// <summary>
-        /// The time it takes to complete an order.
-        /// </summary>
-        public double OrderCompletionTime;
-
-        /// <summary>
-        /// The waypoint this output-station is located at.
-        /// </summary>
-        public Waypoint Waypoint;
-
-        /// <summary>
-        /// The order ID of this station that defines the sequence in which the stations have to be activated.
-        /// </summary>
-        public int ActivationOrderID;
-
-        /// <summary>
-        /// The capacity of this station.
-        /// </summary>
-        public int Capacity;
-
-        /// <summary>
         /// The capacity currently in use at this station.
         /// </summary>
         public int CapacityInUse { get { return _assignedOrders.Count; } }
@@ -104,7 +74,7 @@ namespace RAWSimO.Core.Elements
         /// <summary>
         /// The orders currently assigned to this station.
         /// </summary>
-        private HashSet<Order> _assignedOrders = new HashSet<Order>();
+        public HashSet<Order> _assignedOrders = new HashSet<Order>();
         /// <summary>
         /// The set of orders not yet allocated but already registered with this station.
         /// </summary>
@@ -302,7 +272,7 @@ namespace RAWSimO.Core.Elements
         /// </summary>
         /// <param name="currentTime">The current simulation time.</param>
         /// <returns>The completed order if there was one, <code>null</code> otherwise.</returns>
-        protected Order RemoveAnyCompletedOrder(double currentTime)
+        protected virtual Order RemoveAnyCompletedOrder(double currentTime)
         {
             // Remove any orders that are finished
             Order finishedOrder = null;
@@ -428,18 +398,6 @@ namespace RAWSimO.Core.Elements
         #region Statistics
 
         /// <summary>
-        /// The number of items handled by this station.
-        /// </summary>
-        public int StatNumItemsPicked;
-        /// <summary>
-        /// The number of items picked by this station that were injected to the task of the robot.
-        /// </summary>
-        public int StatNumInjectedItemsPicked;
-        /// <summary>
-        /// The number of orders completed at this station.
-        /// </summary>
-        public int StatNumOrdersFinished;
-        /// <summary>
         /// The number of requests currently open (not assigned to a bot) for this station.
         /// </summary>
         internal int StatCurrentlyOpenRequests { get; set; }
@@ -496,10 +454,6 @@ namespace RAWSimO.Core.Elements
         /// </summary>
         public double StatOrderPileOn { get { return _statPodHandling == null ? 0 : StatNumOrdersFinished / (double)_statPodHandling.PodsHandled; } }
         /// <summary>
-        /// The time this station was idling.
-        /// </summary>
-        public double StatIdleTime;
-        /// <summary>
         /// The time this station was active.
         /// </summary>
         public double StatActiveTime { get; private set; }
@@ -507,10 +461,6 @@ namespace RAWSimO.Core.Elements
         /// The last time the activity of the station was logged.
         /// </summary>
         private double _lastActiveMeasurement = 0;
-        /// <summary>
-        /// The time this station was shutdown.
-        /// </summary>
-        public double StatDownTime;
         /// <summary>
         /// The timepoint at which the station completed its last order and may have moved to a rest state.
         /// </summary>
@@ -622,7 +572,7 @@ namespace RAWSimO.Core.Elements
             if (currentTime - _statDepletionTime > Instance.SettingConfig.StationShutdownThresholdTime)
                 StatDownTime += Math.Min(currentTime - _statDepletionTime, currentTime - lastTime);
 
-            if (RemoveAnyCompletedOrder(currentTime) != null)
+            if (this.RemoveAnyCompletedOrder(currentTime) != null)
                 return;
 
             if (TakeItemFromPod(currentTime))
@@ -650,8 +600,8 @@ namespace RAWSimO.Core.Elements
         public int GetInfoAssignedOrders() { return _assignedOrders.Count; }
 
         private object _syncRoot = new object();
-        private List<IOrderInfo> _completedOrders = new List<IOrderInfo>();
-        private List<IOrderInfo> _openOrders = new List<IOrderInfo>();
+        public List<IOrderInfo> _completedOrders = new List<IOrderInfo>();
+        public List<IOrderInfo> _openOrders = new List<IOrderInfo>();
         /// <summary>
         /// Gets all order currently open.
         /// </summary>
@@ -722,6 +672,11 @@ namespace RAWSimO.Core.Elements
         /// </summary>
         /// <returns>The number of pods currently incoming to this station.</returns>
         public int GetInfoInboundPods() { return _inboundPods.Count; }
+        /// <summary>
+        /// Gets the full name of the object
+        /// </summary>
+        /// <returns>String representing the name of the object</returns>
+        virtual public string GetInfoFullName() { return ToString(); }
 
         #endregion
 
@@ -745,7 +700,20 @@ namespace RAWSimO.Core.Elements
         /// Note: For now the volatile ID matches the actual ID.
         /// </summary>
         int IExposeVolatileID.VolatileID { get { return VolatileID; } }
+        #endregion
 
+        #region PublicFieldsEncapsulation
+        public double ItemTransferTime { get; set; }
+        public double ItemPickTime { get; set; }
+        public double OrderCompletionTime { get; set; }
+        public Waypoint Waypoint { get; set; }
+        public int ActivationOrderID { get; set; }
+        public int Capacity { get; set; }
+        public int StatNumItemsPicked { get; set; }
+        public int StatNumInjectedItemsPicked { get; set; }
+        public int StatNumOrdersFinished { get; set; }
+        public double StatIdleTime { get; set; }
+        public double StatDownTime { get; set; }
         #endregion
     }
 }

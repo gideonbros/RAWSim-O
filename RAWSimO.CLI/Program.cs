@@ -26,7 +26,6 @@ namespace RAWSimO.CLI
             new Tuple<string,string>("Setting","The path to the setting configuration file"),
             new Tuple<string,string>("ControlConfig","The path to the controller configuration file"),
             new Tuple<string,string>("StatisticsDir","The path to the directory into which the results are written"),
-            new Tuple<string,string>("Seed","The seed to pass to the simulator"),
         };
 
         /// <summary>
@@ -152,7 +151,6 @@ namespace RAWSimO.CLI
                     Instance = args[0],
                     SettingConfig = args[1],
                     ControlConfig = args[2],
-                    Seed = args[4],
                     LogAction = LogLine,
                     Tag = ((args.Length == CliArgs.Length + 1) ? args[CliArgs.Length] : null)
                 };
@@ -161,18 +159,20 @@ namespace RAWSimO.CLI
 
             // Setup instance
             LogLine("Initializing ... ");
-            int seed = int.Parse(args[4]);
             Action<string> logAction = (string message) => { LogLine(message); };
             Instance instance = InstanceIO.ReadInstance(args[0], args[1], args[2], logAction: logAction);
+            if (instance == null) return;
             instance.SettingConfig.LogAction = logAction;
-            instance.SettingConfig.Seed = seed;
+
             if (args.Length == CliArgs.Length + 1)
                 instance.Tag = args[CliArgs.Length];
+
             string statisticsFolder = instance.Name + "-" + instance.SettingConfig.Name + "-" + instance.ControllerConfig.Name + "-" + instance.SettingConfig.Seed.ToString();
-            instance.SettingConfig.StatisticsDirectory = Path.Combine(args[3], statisticsFolder);
+            instance.SettingConfig.StatisticsDirectory = Path.Combine(args[3], statisticsFolder); 
             LogLine("StatisticsFolder: " + statisticsFolder);
-            instance.Randomizer = new RandomizerSimple(seed);
+            
             LogLine("Done!");
+           
             // Setup log to disk
             if (!Directory.Exists(instance.SettingConfig.StatisticsDirectory))
                 Directory.CreateDirectory(instance.SettingConfig.StatisticsDirectory);
@@ -184,9 +184,6 @@ namespace RAWSimO.CLI
 
             // Write short statistics to output
             instance.PrintStatistics((string s) => LogLine(s));
-            // Mark tag as finished, if available
-            if (instance.Tag != null)
-                MarkTagFinished(args[3], args[0], args[1], args[2], args[4], instance.Tag);
             // Finished
             LogLine(".Fin. - SUCCESS");
         }

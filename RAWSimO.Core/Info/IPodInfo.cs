@@ -13,6 +13,37 @@ namespace RAWSimO.Core.Info
     public interface IPodInfo : IMovableObjectInfo
     {
         /// <summary>
+        /// Returns the horizontal length of the object.
+        /// </summary>
+        /// <returns>The radius.</returns>
+        double GetInfoHorizontalLength();
+        /// <summary>
+        /// Returns the vertical length of the object.
+        /// </summary>
+        /// <returns>The radius.</returns>
+        double GetInfoVerticalLength();
+        /// <summary>
+        /// Returns the address of the object.
+        /// </summary>
+        /// <returns>Returns the address of the object.</returns>
+        string GetPodAddress();
+
+        /// <summary>
+        /// Returns the waypoint ID or -1 of the waypoint where pod is currently at.
+        /// </summary>
+        /// <returns>-1 or ID</returns>
+        int GetPodWaypointID();
+        /// <summary>
+        /// Returns the zone of the object.
+        /// </summary>
+        /// <returns></returns>
+        string GetPodZone();
+        int GetRowFromY(double y);
+        int GetColFromX(double x);
+        // return integer depending on assigned mate or if the item is opened
+        double GetStatusColorKey();
+        double GetPodLocked();
+        /// <summary>
         /// Gets the current heat associated with this pod as a value between 0 (low heat) and 100 (high heat).
         /// </summary>
         /// <returns>The heat of this pod.</returns>

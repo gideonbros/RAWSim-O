@@ -54,7 +54,7 @@ namespace RAWSimO.Core.Bots
                 foreach (var crashBot in _potentialCrashBots)
                 {
                     // Log the potential collision
-                    _instance.LogInfo("Investigating potential collision of " + crashBot.GetIdentfierString() + " ...");
+                    //_instance.LogInfo("Investigating potential collision of " + crashBot.GetIdentfierString() + " ...");
                     // Check quad-tree for collisions (consider the pod too)
                     if (// Check for collisions with other bots
                         crashBot.Tier.BotQuadTree.IsCollision(crashBot) ||
@@ -102,7 +102,7 @@ namespace RAWSimO.Core.Bots
                     InstanceIO.WriteInstance(debugInstanceFile, _instance);
                     _instance.LogSevere("We're done here!");
                     // This is not allowed anymore
-                    throw new Exception("Unmanaged Operation: collisions are not expected anymore!");
+                    //throw new Exception("Unmanaged Operation: collisions are not expected anymore!");
                 }
                 else
                 {

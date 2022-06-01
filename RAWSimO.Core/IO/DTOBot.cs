@@ -81,6 +81,11 @@ namespace RAWSimO.Core.IO
         [XmlAttribute]
         public int Tier;
         /// <summary>
+        /// The initial zones of robot.
+        /// </summary>
+        [XmlAttribute]
+        public List<string> Zones;
+        /// <summary>
         /// Creates a DTO representation of the original object.
         /// </summary>
         /// <param name="value">The original object.</param>
@@ -130,7 +135,9 @@ namespace RAWSimO.Core.IO
                 MaxDeceleration,
                 MaxVelocity,
                 TurnSpeed,
-                CollisionPenaltyTime);
+                CollisionPenaltyTime,
+                BotType.BotNormal,
+                0, Zones);
         }
 
         #endregion

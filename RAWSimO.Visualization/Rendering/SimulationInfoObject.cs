@@ -61,7 +61,10 @@ namespace RAWSimO.Visualization.Rendering
         private Dictionary<IInputStationInfo, TextBlock> _blocksActiveIStations = new Dictionary<IInputStationInfo, TextBlock>();
         private Dictionary<IOutputStationInfo, TextBlock> _blocksBlockedOStations = new Dictionary<IOutputStationInfo, TextBlock>();
         private Dictionary<IInputStationInfo, TextBlock> _blocksBlockedIStations = new Dictionary<IInputStationInfo, TextBlock>();
+        private Dictionary<IBotInfo, TextBlock> _blocksPickers = new Dictionary<IBotInfo, TextBlock>();
         private SimulationVisualOrderManager _orderManager;
+        private SimulationVisualStatusTableManager _statusTableManager;
+        private SimulationVisualBotLocationManager _botLocationManager;
 
         public SimulationInfoInstance(TreeView infoHost, IInstanceInfo instance) : base(infoHost) { _instance = instance; }
 
@@ -111,7 +114,22 @@ namespace RAWSimO.Visualization.Rendering
                     _blocksBlockedOStations[station].Background = _colorStationBlocked;
                 else if (!station.GetInfoBlocked() && _blocksBlockedOStations[station].Background != _colorStationFree)
                     _blocksBlockedOStations[station].Background = _colorStationFree;
-            _orderManager.Update(_instance.GetInfoItemManager().GetInfoOpenOrders(), _instance.GetInfoItemManager().GetInfoCompletedOrders());
+            // TODO: should synchronize or remove
+            List<IBotInfo> pickersNeedingAssignment = _instance.GetInfoMatesNeedingAssignment();
+            foreach (var bot in _instance.GetInfoMates())
+            {
+                if (pickersNeedingAssignment.Contains(bot))
+                    _blocksPickers[bot].Background = ColorManager.GenerateHueBrush(bot.GetInfoHue());
+                else
+                    _blocksPickers[bot].Background = Brushes.White;
+            }
+            _orderManager.Update(
+                _instance.GetInfoItemManager().GetInfoOpenOrders(),
+                _instance.GetInfoItemManager().GetInfoCompletedOrders(),
+                _instance.GetInfoItemManager().GetInfoPendingOrders());
+           
+            _statusTableManager.Update();
+            _botLocationManager.Update();
         }
 
         public override void InfoPanelInit()
@@ -355,14 +373,49 @@ namespace RAWSimO.Visualization.Rendering
                 }
                 _root.Items.Add(blockedOStationsPanel);
 
+                StackPanel pickersWithoutAssignment = new StackPanel { Orientation = Orientation.Horizontal };
+                pickersWithoutAssignment.Children.Add(new TextBlock { Text = "Pickers:", TextAlignment = TextAlignment.Right, MinWidth = _infoPanelLeftColumnWidth });
+                pickersWithoutAssignment.Children.Add(new TextBlock { MinWidth = 2 });
+                foreach (var mate in _instance.GetInfoMates())
+                {
+                    TextBlock pickerWithoutAssignement = new TextBlock
+                    {
+                        Text = mate.GetInfoID().ToString(),
+                        TextAlignment = TextAlignment.Center,
+                        MinWidth = _infoPanelSingleSmallElementWidth,
+                        Background = Brushes.Gray
+                    };
+                    _blocksPickers[mate] = pickerWithoutAssignement;
+                    pickersWithoutAssignment.Children.Add(pickerWithoutAssignement);
+                }
+                _root.Items.Add(pickersWithoutAssignment);
+
                 // Init order list root nodes
-                TreeViewItem openOrderListItem = new TreeViewItem { };
-                TreeViewItem completedOrderListItem = new TreeViewItem { IsExpanded = true };
+                TreeViewItem assignmentTableItem = new TreeViewItem { IsExpanded = false};
+                TreeViewItem statusTableItem = new TreeViewItem { IsExpanded = true };
+                TreeViewItem locationManagerItem = new TreeViewItem { IsExpanded = true };
+                TreeViewItem openOrderListItem = new TreeViewItem { IsExpanded = true };
+                TreeViewItem completedOrderListItem = new TreeViewItem { IsExpanded = false};
+                TreeViewItem availableOrderListItem = new TreeViewItem { IsExpanded = true};
+                _root.Items.Add(statusTableItem);
+                _root.Items.Add(locationManagerItem);
+                _root.Items.Add(assignmentTableItem);
                 _root.Items.Add(openOrderListItem);
+                _root.Items.Add(availableOrderListItem);
                 _root.Items.Add(completedOrderListItem);
                 // Add order list
-                _orderManager = new SimulationVisualOrderManager(openOrderListItem, "OpenOrders", completedOrderListItem, "CompleteOrders", 40);
-                _orderManager.Update(_instance.GetInfoItemManager().GetInfoOpenOrders(), _instance.GetInfoItemManager().GetInfoCompletedOrders());
+                _orderManager = new SimulationVisualOrderManager(openOrderListItem, "OpenOrders", completedOrderListItem, "CompletedOrders", availableOrderListItem, "AvailableOrders", 20);
+                _orderManager.Update(
+                    _instance.GetInfoItemManager().GetInfoOpenOrders(),
+                    _instance.GetInfoItemManager().GetInfoCompletedOrders(),
+                    _instance.GetInfoItemManager().GetInfoPendingOrders());
+                // update assignments
+                // TODO: add future items count depending on the predicion depth
+                _statusTableManager = new SimulationVisualStatusTableManager(statusTableItem, _instance);
+                _statusTableManager.Update();
+                // Bot location manager
+                _botLocationManager = new SimulationVisualBotLocationManager(locationManagerItem, _instance);
+                _botLocationManager.Update();
             }
             // Expand root node
             _infoHost.Items.Add(_root);
@@ -419,7 +472,7 @@ namespace RAWSimO.Visualization.Rendering
             if (_root == null)
             {
                 // Init root node
-                _root = new TreeViewItem { Header = "InputStation" + _iStation.GetInfoID() };
+                _root = new TreeViewItem { Header =  _iStation.GetInfoFullName() };
                 // Add position
                 WrapPanel xyPanel = new WrapPanel { Orientation = Orientation.Horizontal };
                 xyPanel.Children.Add(new TextBlock { Text = "X/Y: ", TextAlignment = TextAlignment.Right, MinWidth = _infoPanelLeftColumnWidth });
@@ -568,7 +621,7 @@ namespace RAWSimO.Visualization.Rendering
             if (_root == null)
             {
                 // Init root node
-                _root = new TreeViewItem { Header = "OutputStation" + _oStation.GetInfoID() };
+                _root = new TreeViewItem { Header = _oStation.GetInfoFullName() };
                 // Add position
                 WrapPanel xyPanel = new WrapPanel { Orientation = Orientation.Horizontal };
                 xyPanel.Children.Add(new TextBlock { Text = "X/Y: ", TextAlignment = TextAlignment.Right, MinWidth = _infoPanelLeftColumnWidth });
@@ -659,7 +712,7 @@ namespace RAWSimO.Visualization.Rendering
                 _root.Items.Add(openOrderListItem);
                 _root.Items.Add(completedOrderListItem);
                 // Add order list
-                _orderManager = new SimulationVisualOrderManager(openOrderListItem, "OpenOrders", completedOrderListItem, "CompleteOrders", 30);
+                _orderManager = new SimulationVisualOrderManager(openOrderListItem, "OpenOrders", completedOrderListItem, "CompleteOrders", 20);
                 _orderManager.Update(_oStation.GetInfoOpenOrders(), _oStation.GetInfoCompletedOrders());
             }
             // Expand root node
@@ -737,6 +790,7 @@ namespace RAWSimO.Visualization.Rendering
         private readonly int _infoPanelLeftColumnWidth = 80;
         private readonly int _infoPanelRightColumnWidth = 60;
         private TextBlock _blockXY;
+        private TextBlock _blockZone;
         private TextBlock _blockOrientation;
         private TextBlock _blockTargetOrientation;
         private TextBlock _blockCurrentWaypoint;
@@ -744,6 +798,7 @@ namespace RAWSimO.Visualization.Rendering
         private TextBlock _blockGoalWaypoint;
         private TextBlock _blockSpeed;
         private TextBlock _blockBlocked;
+        private TextBlock _blockBlockedFrequency;
         private TextBlock _blockBlockedUntil;
         private TextBlock _blockQueueing;
         private TextBlock _blockState;
@@ -757,21 +812,24 @@ namespace RAWSimO.Visualization.Rendering
             _blockXY.Text = _bot.GetInfoCenterX().ToString(IOConstants.EXPORT_FORMAT_SHORT, IOConstants.FORMATTER) + "/" + _bot.GetInfoCenterY().ToString(IOConstants.EXPORT_FORMAT_SHORT, IOConstants.FORMATTER);
             _blockOrientation.Text = Transformation2D.ProjectOrientation(_bot.GetInfoOrientation()).ToString(IOConstants.EXPORT_FORMAT_SHORT, IOConstants.FORMATTER) + "°";
             _blockTargetOrientation.Text = Transformation2D.ProjectOrientation(_bot.GetInfoTargetOrientation()).ToString(IOConstants.EXPORT_FORMAT_SHORT, IOConstants.FORMATTER) + "°";
-            IWaypointInfo currentWP = _bot.GetInfoCurrentWaypoint(); IWaypointInfo destinationWP = _bot.GetInfoDestinationWaypoint(); IWaypointInfo goalWP = _bot.GetInfoGoalWaypoint();
+            IWaypointInfo currentWP = _bot.GetInfoCurrentWaypoint(); 
+            IWaypointInfo destinationWP = _bot.GetInfoDestinationWaypoint(); 
+            IWaypointInfo goalWP = _bot.GetInfoGoalWaypoint();
             _blockCurrentWaypoint.Text = currentWP == null ? "none" :
-                currentWP.GetInfoID().ToString() + " (" +
+                currentWP.GetInfoRowColumn() + " - " + currentWP.GetInfoID().ToString() + " (" +
                 currentWP.GetInfoCenterX().ToString(IOConstants.EXPORT_FORMAT_SHORT, IOConstants.FORMATTER) + "," +
                 currentWP.GetInfoCenterY().ToString(IOConstants.EXPORT_FORMAT_SHORT, IOConstants.FORMATTER) + ")";
             _blockDestinationWaypoint.Text = destinationWP == null ? "none" :
-                destinationWP.GetInfoID().ToString() + " (" +
+                destinationWP.GetInfoRowColumn() + " - " + destinationWP.GetInfoID().ToString() + " (" +
                 destinationWP.GetInfoCenterX().ToString(IOConstants.EXPORT_FORMAT_SHORT, IOConstants.FORMATTER) + "," +
                 destinationWP.GetInfoCenterY().ToString(IOConstants.EXPORT_FORMAT_SHORT, IOConstants.FORMATTER) + ")";
             _blockGoalWaypoint.Text = goalWP == null ? "none" :
-                goalWP.GetInfoID().ToString() + " (" +
+                goalWP.GetInfoRowColumn() + " - " + goalWP.GetInfoID().ToString() + " (" +
                 goalWP.GetInfoCenterX().ToString(IOConstants.EXPORT_FORMAT_SHORT, IOConstants.FORMATTER) + "," +
                 goalWP.GetInfoCenterY().ToString(IOConstants.EXPORT_FORMAT_SHORT, IOConstants.FORMATTER) + ")";
             _blockSpeed.Text = _bot.GetInfoSpeed().ToString(IOConstants.EXPORT_FORMAT_SHORT, IOConstants.FORMATTER) + " m/s";
             _blockBlocked.Text = _bot.GetInfoBlocked().ToString();
+            _blockBlockedFrequency.Text = _bot.GetInfoBlockedLoopFrequency().ToString();
             double blockedUntil = _bot.GetInfoBlockedLeft();
             _blockBlockedUntil.Text = double.IsNaN(blockedUntil) || double.IsPositiveInfinity(blockedUntil) || blockedUntil < 0 ? "n/a" : TimeSpan.FromSeconds(blockedUntil).ToString(IOConstants.TIMESPAN_FORMAT_HUMAN_READABLE_MINUTES);
             _blockQueueing.Text = _bot.GetInfoIsQueueing().ToString();
@@ -779,9 +837,7 @@ namespace RAWSimO.Visualization.Rendering
             List<IWaypointInfo> path = _bot.GetInfoPath();
             if (path != null && path.Any() && _bot.GetInfoState() == "Move")
                 _blockPath.Text = string.Join(Environment.NewLine, path.Select(w =>
-                    "Waypoint" + w.GetInfoID() + "-(" +
-                        w.GetInfoCenterX().ToString(IOConstants.EXPORT_FORMAT_SHORT, IOConstants.FORMATTER) + "," +
-                        w.GetInfoCenterY().ToString(IOConstants.EXPORT_FORMAT_SHORT, IOConstants.FORMATTER) + ")"));
+                    "(" + w.GetInfoRowColumn() + ")"));
             else
                 _blockPath.Text = "<empty>";
         }
@@ -794,6 +850,17 @@ namespace RAWSimO.Visualization.Rendering
             _infoHost.Items.Clear();
             TreeViewItem root = new TreeViewItem { Header = "Bot" + _bot.GetInfoID() };
             _infoHost.Items.Add(root);
+            // Add zone
+            WrapPanel zonePanel = new WrapPanel { Orientation = Orientation.Horizontal };
+            zonePanel.Children.Add(new TextBlock { Text = "Zones: ", TextAlignment = TextAlignment.Right, MinWidth = _infoPanelLeftColumnWidth });
+            _blockZone = new TextBlock
+            {
+                Text =
+                string.Join(" ", _bot.GetZones()),
+                MinWidth = _infoPanelRightColumnWidth
+            };
+            zonePanel.Children.Add(_blockZone);
+            root.Items.Add(zonePanel);
             // Add position
             WrapPanel xyPanel = new WrapPanel { Orientation = Orientation.Horizontal };
             xyPanel.Children.Add(new TextBlock { Text = "X/Y: ", TextAlignment = TextAlignment.Right, MinWidth = _infoPanelLeftColumnWidth });
@@ -828,30 +895,30 @@ namespace RAWSimO.Visualization.Rendering
             root.Items.Add(orientationTargetPanel);
             // Add target
             WrapPanel currentWaypointPanel = new WrapPanel { Orientation = Orientation.Horizontal };
-            currentWaypointPanel.Children.Add(new TextBlock { Text = "Current Waypoint: ", TextAlignment = TextAlignment.Right, MinWidth = _infoPanelLeftColumnWidth });
+            currentWaypointPanel.Children.Add(new TextBlock { Text = "Current Row/Column: ", TextAlignment = TextAlignment.Right, MinWidth = _infoPanelLeftColumnWidth });
             _blockCurrentWaypoint = new TextBlock
             {
-                Text = (_bot.GetInfoCurrentWaypoint() == null) ? "none" : _bot.GetInfoCurrentWaypoint().GetInfoID().ToString(),
+                Text = (_bot.GetInfoCurrentWaypoint() == null) ? "none" : _bot.GetInfoCurrentWaypoint().GetInfoRowColumn() + " - " + _bot.GetInfoCurrentWaypoint().GetInfoID().ToString(),
                 MinWidth = _infoPanelRightColumnWidth,
             };
             currentWaypointPanel.Children.Add(_blockCurrentWaypoint);
             root.Items.Add(currentWaypointPanel);
             // Add target
             WrapPanel destinationWaypointPanel = new WrapPanel { Orientation = Orientation.Horizontal };
-            destinationWaypointPanel.Children.Add(new TextBlock { Text = "Target Waypoint: ", TextAlignment = TextAlignment.Right, MinWidth = _infoPanelLeftColumnWidth });
+            destinationWaypointPanel.Children.Add(new TextBlock { Text = "Target Row/Column: ", TextAlignment = TextAlignment.Right, MinWidth = _infoPanelLeftColumnWidth });
             _blockDestinationWaypoint = new TextBlock
             {
-                Text = (_bot.GetInfoDestinationWaypoint() == null) ? "none" : _bot.GetInfoDestinationWaypoint().GetInfoID().ToString(),
+                Text = (_bot.GetInfoDestinationWaypoint() == null) ? "none" : _bot.GetInfoDestinationWaypoint().GetInfoRowColumn() + " - " + _bot.GetInfoDestinationWaypoint().GetInfoID().ToString(),
                 MinWidth = _infoPanelRightColumnWidth,
             };
             destinationWaypointPanel.Children.Add(_blockDestinationWaypoint);
             root.Items.Add(destinationWaypointPanel);
             // Add goal
             WrapPanel goalWaypointPanel = new WrapPanel { Orientation = Orientation.Horizontal };
-            goalWaypointPanel.Children.Add(new TextBlock { Text = "Goal Waypoint: ", TextAlignment = TextAlignment.Right, MinWidth = _infoPanelLeftColumnWidth });
+            goalWaypointPanel.Children.Add(new TextBlock { Text = "Goal Row/Column: ", TextAlignment = TextAlignment.Right, MinWidth = _infoPanelLeftColumnWidth });
             _blockGoalWaypoint = new TextBlock
             {
-                Text = (_bot.GetInfoGoalWaypoint() == null) ? "none" : _bot.GetInfoGoalWaypoint().GetInfoID().ToString(),
+                Text = (_bot.GetInfoGoalWaypoint() == null) ? "none" : _bot.GetInfoGoalWaypoint().GetInfoRowColumn() + " - " + _bot.GetInfoGoalWaypoint().GetInfoID().ToString(),
                 MinWidth = _infoPanelRightColumnWidth,
             };
             goalWaypointPanel.Children.Add(_blockGoalWaypoint);
@@ -876,6 +943,16 @@ namespace RAWSimO.Visualization.Rendering
             };
             blockedPanel.Children.Add(_blockBlocked);
             root.Items.Add(blockedPanel);
+            // add block-ublock loop frequency
+            WrapPanel blockedFrequencyPanel = new WrapPanel { Orientation = Orientation.Horizontal };
+            blockedFrequencyPanel.Children.Add(new TextBlock { Text = "Block-unblock frequency: ", TextAlignment = TextAlignment.Right, MinWidth = _infoPanelLeftColumnWidth });
+            _blockBlockedFrequency = new TextBlock
+            {
+                Text = _bot.GetInfoBlockedLoopFrequency().ToString(),
+                MinWidth = _infoPanelRightColumnWidth
+            };
+            blockedFrequencyPanel.Children.Add(_blockBlockedFrequency);
+            root.Items.Add(blockedFrequencyPanel);
             // Add blocked time remaining
             WrapPanel blockedUntilPanel = new WrapPanel { Orientation = Orientation.Horizontal };
             blockedUntilPanel.Children.Add(new TextBlock { Text = "Blocked until: ", TextAlignment = TextAlignment.Right, MinWidth = _infoPanelLeftColumnWidth });
@@ -930,7 +1007,11 @@ namespace RAWSimO.Visualization.Rendering
         private readonly IPodInfo _pod;
         private readonly int _infoPanelLeftColumnWidth = 105;
         private readonly int _infoPanelRightColumnWidth = 60;
+        // row and column of a cell in the csv file
+        private TextBlock _blockRowColumn;
         private TextBlock _blockXY;
+        private TextBlock _blockAddress;
+        private TextBlock _blockZone;
         private TextBlock _blockOrientation;
         private TextBlock _blockCapacity;
         private TextBlock _blockCapacityReserved;
@@ -968,17 +1049,62 @@ namespace RAWSimO.Visualization.Rendering
             {
                 _root = new TreeViewItem { Header = "Pod" + _pod.GetInfoID() };
                 // Add position
+                WrapPanel rowColumnPanel = new WrapPanel { Orientation = Orientation.Horizontal };
+                rowColumnPanel.Children.Add(new TextBlock { Text = "Row/Column: ", TextAlignment = TextAlignment.Right, MinWidth = _infoPanelLeftColumnWidth });
+                _blockRowColumn = new TextBlock
+                {
+                    Text =
+                    (_pod.GetRowFromY(_pod.GetInfoCenterY()) - 1).ToString() + ", " +
+                    (_pod.GetColFromX(_pod.GetInfoCenterX()) - 1).ToString(),
+                    MinWidth = _infoPanelRightColumnWidth
+                };
+                rowColumnPanel.Children.Add(_blockRowColumn);
+                _root.Items.Add(rowColumnPanel);
                 WrapPanel xyPanel = new WrapPanel { Orientation = Orientation.Horizontal };
                 xyPanel.Children.Add(new TextBlock { Text = "X/Y: ", TextAlignment = TextAlignment.Right, MinWidth = _infoPanelLeftColumnWidth });
                 _blockXY = new TextBlock
                 {
-                    Text =
-                    _pod.GetInfoCenterX().ToString(IOConstants.EXPORT_FORMAT_SHORT, IOConstants.FORMATTER) + "/" +
-                    _pod.GetInfoCenterY().ToString(IOConstants.EXPORT_FORMAT_SHORT, IOConstants.FORMATTER),
+                    Text = _pod.GetInfoCenterX().ToString(IOConstants.EXPORT_FORMAT_SHORT, IOConstants.FORMATTER) + "/" + _pod.GetInfoCenterY().ToString(IOConstants.EXPORT_FORMAT_SHORT, IOConstants.FORMATTER),
                     MinWidth = _infoPanelRightColumnWidth
                 };
                 xyPanel.Children.Add(_blockXY);
                 _root.Items.Add(xyPanel);
+
+                // Add address
+                WrapPanel addressPanel = new WrapPanel { Orientation = Orientation.Horizontal };
+                addressPanel.Children.Add(new TextBlock { Text = "Address: ", TextAlignment = TextAlignment.Right, MinWidth = _infoPanelLeftColumnWidth });
+                _blockAddress = new TextBlock
+                {
+                    Text =
+                    _pod.GetPodAddress().ToString(),
+                    MinWidth = _infoPanelRightColumnWidth
+                };
+                addressPanel.Children.Add(_blockAddress);
+                _root.Items.Add(addressPanel);
+
+                WrapPanel wpIDPanel = new WrapPanel { Orientation = Orientation.Horizontal };
+                wpIDPanel.Children.Add(new TextBlock { Text = "Waypoint ID: ", TextAlignment = TextAlignment.Right, MinWidth = _infoPanelLeftColumnWidth });
+                _blockAddress = new TextBlock
+                {
+                    Text =
+                    _pod.GetPodWaypointID().ToString(),
+                    MinWidth = _infoPanelRightColumnWidth
+                };
+                wpIDPanel.Children.Add(_blockAddress);
+                _root.Items.Add(wpIDPanel);
+
+                // Add zone
+                WrapPanel zonePanel = new WrapPanel { Orientation = Orientation.Horizontal };
+                zonePanel.Children.Add(new TextBlock { Text = "Zone: ", TextAlignment = TextAlignment.Right, MinWidth = _infoPanelLeftColumnWidth });
+                _blockZone = new TextBlock
+                {
+                    Text =
+                    _pod.GetPodZone().ToString(),
+                    MinWidth = _infoPanelRightColumnWidth
+                };
+                zonePanel.Children.Add(_blockZone);
+                _root.Items.Add(zonePanel);
+
                 // Add orientation
                 WrapPanel orientationPanel = new WrapPanel { Orientation = Orientation.Horizontal };
                 orientationPanel.Children.Add(new TextBlock { Text = "Orientation: ", TextAlignment = TextAlignment.Right, MinWidth = _infoPanelLeftColumnWidth });
@@ -1138,6 +1264,7 @@ namespace RAWSimO.Visualization.Rendering
         private readonly int _infoPanelLeftColumnWidth = 80;
         private readonly int _infoPanelRightColumnWidth = 60;
         private TextBlock _blockPaths;
+        private TextBlock _blockDiscretePosition;
         private TextBlock _blockPosition;
         private TextBlock _blockStorageInfo;
         private TreeViewItem _root;
@@ -1159,6 +1286,16 @@ namespace RAWSimO.Visualization.Rendering
             if (_root == null)
             {
                 _root = new TreeViewItem { Header = "Waypoint" + _waypoint.GetInfoID() };
+                // Add discrete position - row/column
+                WrapPanel discretePositionPanel = new WrapPanel { Orientation = Orientation.Horizontal };
+                discretePositionPanel.Children.Add(new TextBlock { Text = "Row/Column: ", TextAlignment = TextAlignment.Right, MinWidth = _infoPanelLeftColumnWidth });
+                _blockDiscretePosition = new TextBlock
+                {
+                    Text = _waypoint.GetInfoRowColumn(),
+                    MinWidth = _infoPanelRightColumnWidth,
+                };
+                discretePositionPanel.Children.Add(_blockDiscretePosition);
+                _root.Items.Add(discretePositionPanel);
                 // Add position
                 WrapPanel positionPanel = new WrapPanel { Orientation = Orientation.Horizontal };
                 positionPanel.Children.Add(new TextBlock { Text = "Position: ", TextAlignment = TextAlignment.Right, MinWidth = _infoPanelLeftColumnWidth });

@@ -114,6 +114,10 @@ namespace RAWSimO.Core.Configurations
         /// A new method that has no concept yet.
         /// </summary>
         Concept,
+        /// <summary>
+        /// method assigning bots to its only station
+        /// </summary>
+        Dummy,
     }
     /// <summary>
     /// All types of implemented station activation strategies.
@@ -280,6 +284,14 @@ namespace RAWSimO.Core.Configurations
         /// An approach exploiting information about the backlog to increase similarities of orders at the stations.
         /// </summary>
         Foresight,
+        /// <summary>
+        /// A greedy approach where order is assigned to the first available station
+        /// </summary>
+        Greedy,
+        /// <summary>
+        /// Remote order manager that connects to a remote scheduling engine.
+        /// </summary>
+        Remote
     }
     /// <summary>
     /// All types of implemented replenishment batching strategies.
@@ -329,12 +341,13 @@ namespace RAWSimO.Core.Configurations
         public ControlConfiguration()
         {
             PathPlanningConfig = new FARPathPlanningConfiguration();
-            TaskAllocationConfig = new BalancedTaskAllocationConfiguration();
+            TaskAllocationConfig = new DummyTaskAllocationConfiguration();
             StationActivationConfig = new ActivateAllStationActivationConfiguration();
             ItemStorageConfig = new EmptiestItemStorageConfiguration();
             PodStorageConfig = new NearestPodStorageConfiguration();
             RepositioningConfig = new DummyRepositioningConfiguration();
-            OrderBatchingConfig = new PodMatchingOrderBatchingConfiguration();
+            OrderBatchingConfig = new GreedyOrderSchedulerConfiguration();
+            //OrderBatchingConfig = new RemoteOrderSchedulerConfiguration();
             ReplenishmentBatchingConfig = new SamePodReplenishmentBatchingConfiguration();
             MethodManagementConfig = new NoChangeMethodManagementConfiguration();
         }
@@ -571,6 +584,7 @@ namespace RAWSimO.Core.Configurations
     /// Base class for the task allocation configuration.
     /// </summary>
     [XmlInclude(typeof(BruteForceTaskAllocationConfiguration))]
+    [XmlInclude(typeof(DummyTaskAllocationConfiguration))]
     [XmlInclude(typeof(RandomTaskAllocationConfiguration))]
     [XmlInclude(typeof(BalancedTaskAllocationConfiguration))]
     [XmlInclude(typeof(SwarmTaskAllocationConfiguration))]
@@ -686,6 +700,8 @@ namespace RAWSimO.Core.Configurations
     /// <summary>
     /// Base class for the order batching configuration.
     /// </summary>
+    [XmlInclude(typeof(GreedyOrderSchedulerConfiguration))]
+    [XmlInclude(typeof(RemoteOrderSchedulerConfiguration))]
     [XmlInclude(typeof(DefaultOrderBatchingConfiguration))]
     [XmlInclude(typeof(RandomOrderBatchingConfiguration))]
     [XmlInclude(typeof(WorkloadOrderBatchingConfiguration))]

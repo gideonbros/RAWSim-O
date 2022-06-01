@@ -12,10 +12,30 @@ namespace RAWSimO.Core.Info
     public interface IWaypointInfo : IImmovableObjectInfo
     {
         /// <summary>
+        /// Returns the row and column of the bo
+        /// </summary>
+        /// <returns></returns>
+        string GetInfoRowColumn();
+        /// <summary>
+        /// Returns the row of the object.
+        /// </summary>
+        /// <returns>Returns the row of the object.</returns>
+        int GetInfoRow();
+        /// <summary>
+        /// Returns the column of the object.
+        /// </summary>
+        /// <returns>Returns the column of the object.</returns>
+        int GetInfoColumn();
+        /// <summary>
         /// Indicates whether the waypoint is a storage location.
         /// </summary>
         /// <returns><code>true</code> if it is a storage location, <code>false</code> otherwise.</returns>
         bool GetInfoStorageLocation();
+
+        // functions used to view unavailable storage locations
+        public bool GetInfoUnavailableStorage();
+        public double GetInfoHorizontalLength();
+        public double GetInfoVerticalLength();
         /// <summary>
         /// Gets all outgoing connections of the waypoint.
         /// </summary>

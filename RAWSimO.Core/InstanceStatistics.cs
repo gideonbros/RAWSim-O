@@ -358,6 +358,10 @@ namespace RAWSimO.Core
             _statOrderLatenessTimes.Clear();
             _statBundleThroughputTimes.Clear();
             _statBundleTurnoverTimes.Clear();
+            MovableStation.StatAllAssistTimes = 0;
+            MateBot.StatAllAssistTimes = 0;
+            foreach (var mb in MateBots) mb.StatTotalAssistTime = 0;
+            foreach (var ms in MovableStations) ms.StatTotalAssistTime = 0; 
 
             // Reset custom controller info
             StatCustomControllerInfo = new CustomControllerDatapoint();
@@ -884,23 +888,31 @@ namespace RAWSimO.Core
         /// <param name="detailedStations">Indicates whether to print detailed statistics about the stations.</param>
         public void PrintStatistics(Action<string> writer, bool detailedAll = false, bool detailedBots = false, bool detailedPods = false, bool detailedStations = false)
         {
+            detailedAll = false; detailedBots = true;
             StringBuilder sb = new StringBuilder();
             if (detailedAll || detailedBots)
             {
-                sb.AppendLine(">>> Bots");
+                sb.AppendLine(">>> Bots \n");
                 foreach (var bot in Bots)
                 {
-                    sb.AppendLine(bot.ToString() + ":");
+                    sb.AppendLine("\n" + bot.ToString() + ":\n");
                     sb.AppendLine("DistanceTraveled: " + bot.StatDistanceTraveled);
-                    sb.AppendLine("DistanceEstimated: " + bot.StatDistanceEstimated);
+                    //sb.AppendLine("DistanceEstimated: " + bot.StatDistanceEstimated);
                     sb.AppendLine("NumberOfPickups: " + bot.StatNumberOfPickups);
-                    sb.AppendLine("NumberOfSetdowns: " + bot.StatNumberOfSetdowns);
+                    //sb.AppendLine("NumberOfSetdowns: " + bot.StatNumberOfSetdowns);
                     sb.AppendLine("NumCollisions: " + bot.StatNumCollisions);
                     sb.AppendLine("TotalTimeMoving: " + bot.StatTotalTimeMoving.ToString(IOConstants.FORMATTER));
+                    sb.AppendLine("TotalTimeRotating: " + bot.StatTotalTimeRotating.ToString(IOConstants.FORMATTER));
+                    sb.AppendLine("TotalTimeQueing: " + bot.StatTotalTimeQueuing.ToString(IOConstants.FORMATTER));
+                    sb.AppendLine("TotalTimeIdleMoving: " + bot.StatTotalTimeIdleMoving.ToString(IOConstants.FORMATTER));
+                    if (bot is MateBot)
+                        sb.AppendLine("Total assist time: " + (bot as MateBot).StatTotalAssistTime.ToString(IOConstants.FORMATTER));
                     //sb.AppendLine("TaskStartTime: " + bot.StatTaskStartTime);
+                    sb.AppendLine("Tasks:");
                     foreach (var taskType in Enum.GetValues(typeof(BotTaskType)).Cast<BotTaskType>())
                         if (bot.StatTotalTaskTimes.ContainsKey(taskType))
                             sb.AppendLine(taskType + ": " + bot.StatTotalTaskTimes[taskType].ToString(IOConstants.FORMATTER));
+                    sb.AppendLine("States:");
                     foreach (var stateType in Enum.GetValues(typeof(BotStateType)).Cast<BotStateType>())
                         if (bot.StatTotalStateTimes.ContainsKey(stateType))
                             sb.AppendLine(stateType + ": " + bot.StatTotalStateTimes[stateType].ToString(IOConstants.FORMATTER));
@@ -957,7 +969,19 @@ namespace RAWSimO.Core
                     sb.AppendLine("PodHandlingTimeMax: " + oStation.StatPodHandlingTimeMax.ToString(IOConstants.FORMATTER));
                 }
             }
-            sb.AppendLine(">>> Timings");
+            sb.AppendLine("\n>>> Timings\n");
+            sb.AppendLine("Sum of all matebot assist times: " + MateBot.StatAllAssistTimes.ToString(IOConstants.FORMATTER));
+            sb.AppendLine("Sum of all movablestation assist times: " + MovableStation.StatAllAssistTimes.ToString(IOConstants.FORMATTER));
+            sb.AppendLine("Sum of all matebot move times: " + MateBots.Sum(mb => mb.StatTotalTimeMoving).ToString(IOConstants.FORMATTER));
+            double matebotsTotalWaitTime = 0;
+            foreach (var mb in MateBots)
+                matebotsTotalWaitTime += (mb.StatTotalStateTimes[BotStateType.WaitingForStation] - mb.StatTotalAssistTime + mb.StatTotalStateTimes[BotStateType.Rest]);
+            sb.AppendLine("Sum of all matebot wait times: " + matebotsTotalWaitTime.ToString(IOConstants.FORMATTER));
+            sb.AppendLine("Sum of all movablestation move times: " + MovableStations.Sum(ms => ms.StatTotalTimeMoving).ToString(IOConstants.FORMATTER));
+            double movableStationsTotalWaitTime = 0;
+            foreach (var ms in MovableStations)
+                movableStationsTotalWaitTime += (ms.StatTotalStateTimes[BotStateType.WaitingForMate] - ms.StatTotalAssistTime);
+            sb.AppendLine("Sum of all movablestation wait times: " + movableStationsTotalWaitTime.ToString(IOConstants.FORMATTER));
             sb.AppendLine("StatTimingPathPlanningAverage: " + Observer.TimingPathPlanningAverage.ToString(IOConstants.FORMATTER));
             sb.AppendLine("StatTimingPathPlanningOverall: " + Observer.TimingPathPlanningOverall.ToString(IOConstants.FORMATTER));
             sb.AppendLine("StatTimingPathPlanningCount: " + Observer.TimingPathPlanningDecisionCount.ToString(IOConstants.FORMATTER));
@@ -1000,6 +1024,10 @@ namespace RAWSimO.Core
             sb.AppendLine("StatMedianThroughputTime: " + ((_statOrderThroughputTimes.Count == 0) ? "0" : StatisticsHelper.GetMedian(_statOrderThroughputTimes).ToString(IOConstants.FORMATTER)));
             sb.AppendLine("StatLowerQuartileThroughputTime: " + ((_statOrderThroughputTimes.Count == 0) ? "0" : StatisticsHelper.GetLowerQuartile(_statOrderThroughputTimes).ToString(IOConstants.FORMATTER)));
             sb.AppendLine("StatUpperQuartileThroughputTime: " + ((_statOrderThroughputTimes.Count == 0) ? "0" : StatisticsHelper.GetUpperQuartile(_statOrderThroughputTimes).ToString(IOConstants.FORMATTER)));
+            sb.AppendLine("Overall MovableStation pickups:" + MovableStations.Sum(ms => ms.StatNumberOfPickups).ToString(IOConstants.FORMATTER));
+            sb.AppendLine("Overall MateBot pickups:" + (SettingConfig.BotsSelfAssist ? 0 : MateBots.Sum(mb => mb.StatNumberOfPickups)).ToString(IOConstants.FORMATTER));
+            sb.AppendLine(">>> Periodic");
+            sb.AppendLine("Periodic throughput: " + string.Join(",", Controller.StatisticsManager.PeriodicThroughputs) + "," + (StatOverallOrdersHandled - Controller.StatisticsManager.PeriodicThroughputs.Sum()).ToString());   
             // Write output
             writer(sb.ToString());
         }

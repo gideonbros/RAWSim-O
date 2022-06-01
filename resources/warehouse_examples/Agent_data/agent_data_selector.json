@@ -1,0 +1,11 @@
+{
+  "agent_data_version_index": 1,
+  "agent_data_versions": [
+    "pickers-bots-1-1_15-reserve",
+    "robots_max_1.15_acc_0.25",
+    "forklifts_max_2.7_acc_0.5",
+    "robots_max_1.8_acc_0.35",
+    "robots_max_1.15_acc_0.35",
+    "robots_max_1.5_acc_0.35"
+  ]
+}

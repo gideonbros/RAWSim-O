@@ -34,7 +34,10 @@ namespace RAWSimO.Core.Geometrics
         /// </summary>
         /// <param name="length">The width of the area to manage.</param>
         /// <param name="width">The height of the area to manage.</param>
-        public QuadTree(double length, double width) { _rootNode = new QuadNode<T>(DivisionThreshold, CombineThreshold, 0, length, 0, width); }
+        public QuadTree(double length, double width, double minHorizontalDiff = double.Epsilon, double minVerticalDiff = double.Epsilon) 
+        {
+            _rootNode = new QuadNode<T>(DivisionThreshold, CombineThreshold, 0, length, 0, width, minHorizontalDiff, minVerticalDiff); 
+        }
         /// <summary>
         /// Creates a new <code>QuadTree</code> with the given parameters.
         /// </summary>
@@ -44,7 +47,10 @@ namespace RAWSimO.Core.Geometrics
         /// <param name="x2">The upper bound of the x-values belonging to this sector.</param>
         /// <param name="y1">The lower bound of the y-values belonging to this sector.</param>
         /// <param name="y2">The upper bound of the y-values belonging to this sector.</param>
-        public QuadTree(int divisionThreshold, int combineThreshold, double x1, double x2, double y1, double y2) { _rootNode = new QuadNode<T>(divisionThreshold, combineThreshold, x1, x2, y1, y2); }
+        public QuadTree(int divisionThreshold, int combineThreshold, double x1, double x2, double y1, double y2, double minHorizontalDiff = double.Epsilon, double minVerticalDiff = double.Epsilon) 
+        { 
+            _rootNode = new QuadNode<T>(divisionThreshold, combineThreshold, x1, x2, y1, y2, minHorizontalDiff, minVerticalDiff); 
+        }
 
         #endregion
 

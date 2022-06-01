@@ -1,5 +1,6 @@
 ﻿using RAWSimO.Core.Info;
 using RAWSimO.Core.IO;
+using RAWSimO.Core.Waypoints;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -19,7 +20,13 @@ namespace RAWSimO.Core.Items
         /// Instantiates this class.
         /// </summary>
         /// <param name="instance">The instance this element belongs to.</param>
-        internal SimpleItemDescription(Instance instance) : base(instance) { }
+        internal SimpleItemDescription(Instance instance, Waypoint waypoint = null) : base(instance) 
+        {
+            if (waypoint != null)
+            {
+                ID = waypoint.ID;
+            }
+        }
 
         #endregion
 
@@ -69,6 +76,25 @@ namespace RAWSimO.Core.Items
         /// <returns>The color.</returns>
         public double GetInfoHue() { return Hue; }
 
+        public static List<ItemDescription> createItemsWithIDs(List<int> ids, Instance instance)
+        {
+            List<ItemDescription> items = new List<ItemDescription>(ids.Count);
+            Enumerable.Repeat(default(SimpleItemDescription), ids.Count).ToList();
+            foreach (var id in ids)
+            {
+                var item = new SimpleItemDescription(instance);
+                item.ID = id;
+                items.Add(item);
+            }
+            return items;
+        }
+
+        public string GetLocation() { return location; }
+        public int GetRow() { return row; }
+        public int GetCol() { return col; }
         #endregion
+
+        public string location;
+        public int row, col;
     }
 }

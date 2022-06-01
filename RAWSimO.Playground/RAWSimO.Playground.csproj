@@ -78,7 +78,6 @@
   <ItemGroup>
     <Compile Include="ClusterHelper.cs" />
     <Compile Include="Generators\ConfigGenerators.cs" />
-    <Compile Include="Generators\InstanceGenerators.cs" />
     <Compile Include="Generators\SettingGenerator.cs" />
     <Compile Include="JenkinsHandler.cs" />
     <Compile Include="Program.cs" />

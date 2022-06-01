@@ -30,11 +30,12 @@ namespace RAWSimO.Core.Control
             instance.Controller.Update(warmup_time);
             instance.LogDefault(">>> Warmup finished - starting simulation ...");
             instance.StatReset();
-            instance.Controller.Update(simulation_time);
+            instance.Controller.Update(1.0 / instance.SettingConfig.SimulationUpdateRate, double.MaxValue);
             instance.StopExecutionTiming();
             instance.LogDefault(">>> Simulation finished - writing results ...");
-            // Print results
             instance.WriteStatistics();
+            if (instance.SettingConfig.StatisticsSummaryFile != null)
+                instance.Controller.StatisticsManager.WriteStatisticsSummary(instance.SettingConfig.StatisticsSummaryFile);
             instance.LogDefault(">>> Results written");
         }
     }

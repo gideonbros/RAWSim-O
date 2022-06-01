@@ -13,6 +13,22 @@ namespace RAWSimO.Core.Configurations
     /// <summary>
     /// The configuration for the corresponding method.
     /// </summary>
+    public class DummyTaskAllocationConfiguration : TaskAllocationConfiguration
+    {
+        /// <summary>
+        /// Returns the type of the corresponding method this configuration belongs to.
+        /// </summary>
+        /// <returns>The type of the method.</returns>
+        public override TaskAllocationMethodType GetMethodType() { return TaskAllocationMethodType.Dummy; }
+        /// <summary>
+        /// Returns a name identifying the method.
+        /// </summary>
+        /// <returns>The name of the method.</returns>
+        public override string GetMethodName() { if (!string.IsNullOrWhiteSpace(Name)) return Name; return "taD"; }
+    }
+     /// <summary>
+    /// The configuration for the corresponding method.
+    /// </summary>
     public class BruteForceTaskAllocationConfiguration : TaskAllocationConfiguration
     {
         /// <summary>

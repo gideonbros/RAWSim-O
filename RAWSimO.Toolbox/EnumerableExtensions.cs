@@ -14,17 +14,6 @@ namespace RAWSimO.Toolbox
     {
         #region HashSet
 
-        ///// <summary>
-        ///// Creates a hash-set from an enumeration.
-        ///// </summary>
-        ///// <typeparam name="T">The type of the elements.</typeparam>
-        ///// <param name="source">The elements to add to the hash-set.</param>
-        ///// <returns>The hash-set.</returns>
-        //public static HashSet<T> ToHashSet<T>(this IEnumerable<T> source)
-        //{
-        //    return new HashSet<T>(source);
-        //}
-
         /// <summary>
         /// Substracts an enumerable from a hash-set. This is identical to <see cref="HashSet{T}.ExceptWith"/>
         /// except that a new hash-set is returned and the first hash-set isn't modified in place.
@@ -754,5 +743,43 @@ namespace RAWSimO.Toolbox
         }
 
         #endregion
+
+        #region Element order shuffling
+
+        public static Random Random = null;
+
+        /// <summary>
+        /// Shuffle element order using Fisher-Yates method
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="source"></param>
+        /// <returns></returns>
+        public static IEnumerable<T> Shuffle<T>(this IEnumerable<T> source)
+        {
+            return source.Shuffle(Random);
+        }
+
+        public static IEnumerable<T> Shuffle<T>(this IEnumerable<T> source, Random rng)
+        {
+            if (source == null) throw new ArgumentNullException("source");
+            if (rng == null) throw new ArgumentNullException("rng");
+
+            return source.ShuffleIterator(rng);
+        }
+
+        private static IEnumerable<T> ShuffleIterator<T>(this IEnumerable<T> source, Random rng)
+        {
+            var buffer = source.ToList();
+            for (int i = 0; i < buffer.Count; i++)
+            {
+                int j = rng.Next(i, buffer.Count);
+                yield return buffer[j];
+
+                buffer[j] = buffer[i];
+            }
+        }
+
+        #endregion
+
     }
 }

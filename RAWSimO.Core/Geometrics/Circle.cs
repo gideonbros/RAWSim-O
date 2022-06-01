@@ -48,7 +48,22 @@ namespace RAWSimO.Core.Geometrics
         /// The y-position of the object's center in 2-dimensional space.
         /// </summary>
         public double Y { get { return _y; } internal set { _y = value; _changed = true; Instance.Changed = true; } }
-
+        /// <summary>
+        /// The row/x positin of the object
+        /// </summary>
+        public int _row;
+        /// <summary>
+        /// The row/x positin of the object
+        /// </summary>
+        public int Row { get { return _row; } internal set { _row = value; _changed = true; Instance.Changed = true; } }
+        /// <summary>
+        /// The column/y positin of the object
+        /// </summary>
+        public int _column;
+        /// <summary>
+        /// The column/y positin of the object
+        /// </summary>
+        public int Column { get { return _column; } internal set { _column = value; _changed = true; Instance.Changed = true; } }
         /// <summary>
         /// The radius of the circle
         /// </summary>
@@ -71,7 +86,22 @@ namespace RAWSimO.Core.Geometrics
         /// The tier on which the object is (initially) located.
         /// </summary>
         public Tier Tier { get { return _tier; } internal set { _tier = value; _changed = true; Instance.Changed = true; } }
-
+        /// <summary>
+        /// The item address which is located on this tier/waypoint
+        /// </summary>
+        public string _address;
+        /// <summary>
+        /// The item address which is located on this tier/waypoint
+        /// </summary>
+        public string Address { get { return _address; } internal set { _address = value; _changed = true; Instance.Changed = true; } }
+        /// <summary>
+        /// Matebot zone which is located on this tier/waypoint
+        /// </summary>
+        public string _zone;
+        /// <summary>
+        /// Matebot zone which is located on this tier/waypoint
+        /// </summary>
+        public string Zone { get { return _zone; } internal set { _zone = value; _changed = true; Instance.Changed = true; } }
         /// <summary>
         /// Indicates whether the object is moving or not.
         /// </summary>
@@ -96,6 +126,27 @@ namespace RAWSimO.Core.Geometrics
         public double GetDistance(Circle c)
         {
             return GetDistance(c.X, c.Y);
+        }
+
+        /// <summary>
+        /// Returns the L1 distance from the circle's center to the specified position.
+        /// </summary>
+        /// <param name="x">The x-position to measure.</param>
+        /// <param name="y">The y-position to measure.</param>
+        /// <returns>The L1 distance between the center of this circle and the specified position.</returns>
+        public double GetL1Distance(double x, double y)
+        {
+            return Math.Abs(this.X - x) + Math.Abs(this.Y - y);
+        }
+
+        /// <summary>
+        /// Returns the L1 distance from this circle's center to the center of the other circle.
+        /// </summary>
+        /// <param name="c">The other circle.</param>
+        /// <returns>The L1 distance between the center of this circle and the center of the other circle.</returns>
+        public double GetL1Distance(Circle c)
+        {
+            return GetL1Distance(c.X, c.Y);
         }
 
         /// <summary>
@@ -181,6 +232,7 @@ namespace RAWSimO.Core.Geometrics
 
         #region Information supply
 
+        
         /// <summary>
         /// Returns the x-coordinate of the object.
         /// </summary>

@@ -53,6 +53,10 @@ namespace RAWSimO.Core.Info
         /// </summary>
         /// <returns>The color.</returns>
         double GetInfoHue();
+
+        int GetRow();
+        int GetCol();
+        string GetLocation();
     }
     /// <summary>
     /// The interface for getting information about an item bundle object.

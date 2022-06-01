@@ -74,7 +74,7 @@ namespace RAWSimO.Core.Elements
         /// <summary>
         /// The current task this bot is occupied by.
         /// </summary>
-        public BotTask CurrentTask { get; internal set; }
+        public virtual BotTask CurrentTask { get; internal set; }
         /// <summary>
         /// Last way point the bot passed.
         /// </summary>
@@ -99,10 +99,39 @@ namespace RAWSimO.Core.Elements
         /// A flag that indicates that the robot is currently queueing.
         /// </summary>
         public bool IsQueueing = false;
+        /// <summary>
+        /// a flag that indicates if a bot has assitance assigned to it's task
+        /// </summary>
+        public bool HasAssistance => Assistant != null;
+        /// <summary>
+        /// Ignore the input pallet stand queue - avoid being pushed towards the pallet stand
+        /// </summary>
+        public bool IgnoreInputPalletStandQueue = true;
+        /// <summary>
+        /// Ignore the output pallet stand queue - avoid being pushed towards the pallet stand
+        /// </summary>
+        public bool IgnoreOutputPalletStandQueue = true;
+        /// <summary>
+        /// Waypoint on which bot rested in the previous state
+        /// </summary>
+        public Waypoint LastRestLocation { get; set; }
+        /// <summary>
+        /// Bot assisting this bot on his task
+        /// </summary>
+        public Bot Assistant => Instance.Controller.MateScheduler.GetAssistant(this);
+        /// <summary>
+        /// Flag which is set if arrival time is lost on aborting assistance
+        /// </summary>
+        public bool AssistanceAborted { get; set; }
 
         #endregion
 
         #region Core
+        /// <summary>
+        /// Returns bot zones.
+        /// </summary>
+        /// <returns></returns>
+        public List<string> GetZones() { return this.Zones; }
         /// <summary>
         /// Returns this bot's current velocity.
         /// </summary>
@@ -120,6 +149,11 @@ namespace RAWSimO.Core.Elements
         /// </summary>
         /// <param name="t">The task to execute.</param>
         public abstract void AssignTask(BotTask t);
+
+        /// <summary>
+        /// Gets BotType
+        /// </summary>
+        public abstract BotType Type { get; }
 
         /// <summary>
         /// Picks up the specified pod.
@@ -224,6 +258,8 @@ namespace RAWSimO.Core.Elements
             return true;
         }
 
+        internal abstract Waypoint GetLocationAfter(int NrRegisteredLocations);
+
         #endregion
 
         #region Statistics
@@ -263,7 +299,15 @@ namespace RAWSimO.Core.Elements
         /// <summary>
         /// The time the robot was queueing.
         /// </summary>
-        public double StatTotalTimeQueueing;
+        public double StatTotalTimeQueuing;
+        /// <summary>
+        /// The time the robot was rotating
+        /// </summary>
+        public double StatTotalTimeRotating;
+        /// <summary>
+        /// The time the robot was standing still but was in <see cref="BotStateType.Move"/> state
+        /// </summary>
+        public double StatTotalTimeIdleMoving;
         /// <summary>
         /// The last task the bot was executing.
         /// </summary>
@@ -296,6 +340,23 @@ namespace RAWSimO.Core.Elements
         /// The number of times the bot was in each state type.
         /// </summary>
         public Dictionary<BotStateType, int> StatTotalStateCounts = new Dictionary<BotStateType, int>(Enum.GetValues(typeof(BotStateType)).Cast<BotStateType>().ToDictionary(k => k, v => 0));
+        /// <summary>
+        /// bot stuck in block-unblock loop measure
+        /// </summary>
+        public double BlockedLoopFrequencey = 0.0;
+        // when was the last time the robot was blocked 
+        public double LastTimeWhenBlocked = 0.0;
+        // maximum time between switches for this to be considered loop
+        public double SlowestBlockedLoopInterval= 20;
+        // minimum time to spend in block-unblock loop
+        public int BlockedLoopSwitchesCount = 0;
+        public double BlockedLoopTime = 0.0;
+
+        public double botHue = 0;
+        /// <summary>
+        /// Matebot zones. 0 is default value. Zone number starts with 1.
+        /// </summary>
+        public List<string> Zones = new List<string>();
 
         /// <summary>
         /// Logs the data of an unfinished trip.
@@ -315,7 +376,9 @@ namespace RAWSimO.Core.Elements
             StatDistanceRequestedOptimal = 0;
             StatAssignedTasks = 0;
             StatTotalTimeMoving = 0;
-            StatTotalTimeQueueing = 0;
+            StatTotalTimeQueuing = 0;
+            StatTotalTimeRotating = 0;
+            StatTotalTimeIdleMoving = 0;
             StatLastTask = BotTaskType.None;
             StatLastState = BotStateType.Rest;
             StatLastWaypoint = null;
@@ -349,13 +412,19 @@ namespace RAWSimO.Core.Elements
         /// </summary>
         /// <param name="currentTime">The current time of the simulation.</param>
         /// <returns>The next time this element has to be updated.</returns>
-        public abstract double GetNextEventTime(double currentTime);
+        public virtual double GetNextEventTime(double currentTime)
+        {
+            throw new NotImplementedException(); //was abstract before but need polymorphism 
+        }                                        //force redefinition on inherited classes   
         /// <summary>
         /// Do update.
         /// </summary>
         /// <param name="lastTime">last time update call</param>
         /// <param name="currentTime">current time</param>
-        public abstract void Update(double lastTime, double currentTime);
+        public virtual void Update(double lastTime, double currentTime)
+        {
+            throw new NotImplementedException(); //was abstract before but need polymorphism 
+        }                                         //force redefinition on inherited classes  
 
         #endregion
 
@@ -391,6 +460,19 @@ namespace RAWSimO.Core.Elements
         /// </summary>
         /// <returns>The speed in m/s.</returns>
         public double GetInfoSpeed() { return GetSpeed(); }
+
+        public double GetInfoHue() { return botHue; }
+
+        /// <summary>
+        /// Returns the waypoint ID of the POD for the given approach waypoint ID
+        /// </summary>
+        /// <param name="approachID"></param>
+        /// <returns></returns>
+        public abstract int GetInfoPodLocationID(int approachID);
+
+        public abstract Tuple<string, int> GetCurrentItemAddressAndMate();
+
+        public abstract List<Tuple<string, bool, int, bool>> GetStatus();
         /// <summary>
         /// Returns the current state the bot is in.
         /// </summary>
@@ -442,10 +524,17 @@ namespace RAWSimO.Core.Elements
         /// <returns>The time until the bot is blocked.</returns>
         public abstract double GetInfoBlockedLeft();
         /// <summary>
+        /// Frequency of the block-unblock loop
+        /// </summary>
+        /// <returns>Frfequency of block-ublock loop</returns>
+        public abstract double GetInfoBlockedLoopFrequency();
+        /// <summary>
         /// Indicates whether the bot is currently queueing in a managed area.
         /// </summary>
         /// <returns><code>true</code> if the robot is within a queue area, <code>false</code> otherwise.</returns>
         public abstract bool GetInfoIsQueueing();
+
+
 
         #endregion
 
@@ -477,6 +566,36 @@ namespace RAWSimO.Core.Elements
         /// </summary>
         public abstract void OnSetDownPod();
 
+        /// <summary>
+        /// called on AbortingTask being assigned
+        /// </summary>
+        public abstract void OnAbortingTaskAsigned();
+
+        /// <summary>
+        /// called on assignement of assistant
+        /// </summary>
+        public abstract void OnAssistantAssigned();
         #endregion
+    }
+
+
+    public enum BotType
+    {
+        /// <summary>
+        /// regular bot type
+        /// </summary>
+        BotNormal,
+        /// <summary>
+        /// Hazardous bot type
+        /// </summary>
+        BotHazzard,
+        /// <summary>
+        /// Movable output station type
+        /// </summary>
+        MovableStation,
+        /// <summary>
+        /// experimental type
+        /// </summary>
+        MateBot
     }
 }

@@ -1,5 +1,6 @@
 ﻿using RAWSimO.Core.Info;
 using RAWSimO.Core.IO;
+using RAWSimO.Core.Control.Filters;
 using RAWSimO.Toolbox;
 using RAWSimO.VisualToolbox.Arrows;
 using System;
@@ -257,6 +258,70 @@ namespace RAWSimO.Visualization.Rendering
         protected override Geometry DefiningGeometry { get { return _geometry; } }
     }
 
+    public class SimulationVisualInputPalletStand2D : SimulationVisualImmovable2D
+    {
+        private readonly IInputStationInfo _iStation;
+        private readonly RectangleGeometry _geometry;
+
+        public SimulationVisualInputPalletStand2D(
+            IInputStationInfo iStation,
+            DetailLevel detailLevel,
+            Transformation2D transformer,
+            double strokeThickness,
+            MouseButtonEventHandler elementClickAction,
+            SimulationAnimation2D controller)
+            : base(iStation, detailLevel, transformer, strokeThickness, elementClickAction, controller)
+        {
+            _iStation = iStation;
+            // Build geometry
+            _geometry =
+                new RectangleGeometry(
+                    new Rect(
+                        new Point(_transformer.ProjectX(_iStation.GetInfoTLX()), _transformer.ProjectY(_iStation.GetInfoTLY())),
+                        new Size(_transformer.ProjectXLength(_iStation.GetInfoLength()), _transformer.ProjectYLength(_iStation.GetInfoWidth()))));
+            // Paint it
+            Fill = VisualizationConstants.BrushInputPalletStandVisual;
+            Cursor = System.Windows.Input.Cursors.Hand;
+            MouseDown += _elementClickAction;
+            Stroke = VisualizationConstants.BrushOutline;
+            StrokeThickness = StrokeThicknessReference;
+        }
+
+        protected override Geometry DefiningGeometry { get { return _geometry; } }
+    }
+
+    public class SimulationVisualOutputPalletStand2D : SimulationVisualImmovable2D
+    {
+        private readonly IOutputStationInfo _oStation;
+        private readonly RectangleGeometry _geometry;
+
+        public SimulationVisualOutputPalletStand2D(
+            IOutputStationInfo oStation,
+            DetailLevel detailLevel,
+            Transformation2D transformer,
+            double strokeThickness,
+            MouseButtonEventHandler elementClickAction,
+            SimulationAnimation2D controller)
+            : base(oStation, detailLevel, transformer, strokeThickness, elementClickAction, controller)
+        {
+            _oStation = oStation;
+            // Build geometry
+            _geometry =
+                new RectangleGeometry(
+                    new Rect(
+                        new Point(_transformer.ProjectX(_oStation.GetInfoTLX()), _transformer.ProjectY(_oStation.GetInfoTLY())),
+                        new Size(_transformer.ProjectXLength(_oStation.GetInfoLength()), _transformer.ProjectYLength(_oStation.GetInfoWidth()))));
+            // Paint it
+            Fill = VisualizationConstants.BrushOutputPalletStandVisual;
+            Cursor = System.Windows.Input.Cursors.Hand;
+            MouseDown += _elementClickAction;
+            Stroke = VisualizationConstants.BrushOutline;
+            StrokeThickness = StrokeThicknessReference;
+        }
+
+        protected override Geometry DefiningGeometry { get { return _geometry; } }
+    }
+
     public class SimulationVisualWaypoint2D : SimulationVisualImmovable2D
     {
         private readonly IWaypointInfo _waypoint;
@@ -451,6 +516,73 @@ namespace RAWSimO.Visualization.Rendering
 
         protected override Geometry DefiningGeometry { get { return _geometry; } }
     }
+    /// <summary>
+    /// Class which is used to visualize Wave used by mate schedulers
+    /// </summary>
+    public class SimulationVisualWave : SimulationVisual2D
+    {
+        public GeometryGroup _geometry = new GeometryGroup();
+        
+        private WideWave Wave { get; set; }
+
+        public IInstanceInfo Instance { get; set; }
+
+        protected override Geometry DefiningGeometry { get { return _geometry; } }
+
+        public SimulationVisualWave(
+            IInstanceInfo instance,
+            DetailLevel detailLevel,
+            Transformation2D transformer,
+            double strokeThickness,
+            MouseButtonEventHandler elementClickAction,
+            SimulationAnimation2D controller)
+            : base(detailLevel, transformer, strokeThickness, elementClickAction, controller)
+        {
+            Instance = instance;
+            Wave = Instance.GetInfoWave();
+            Stroke = VisualizationConstants.BrushWaveVisual;
+            StrokeThickness = StrokeThicknessReference * 0.35;
+        }
+
+        /// </summary>
+        public void Update()
+        {
+            //if Wave is null then current scheduler is not wave based. We have nothing to draw
+            if (Wave == null)
+                return;
+
+            //get x,y deltas for which rectangle will be streched (better visualization)
+            var xDelta = Instance.GetInfoCellWidth();
+            var yDelta = Instance.GetInfoCellHeight();
+
+            _geometry.Children.Clear();
+
+            if (Wave.UpperBound > Wave.LowerBound)
+            {
+                Point rect_point = new Point(_transformer.ProjectX(Wave.waveUpperLeftX - xDelta / 2),
+                                                _transformer.ProjectY(Wave.waveUpperLeftY + yDelta / 2));
+                Size rect_size = new Size(_transformer.ProjectXLength(Wave.Width * Instance.GetInfoCellWidth() + xDelta),
+                             _transformer.ProjectYLength(Wave.Height * Instance.GetInfoCellHeight() + yDelta));
+                _geometry.Children.Add(new RectangleGeometry(new Rect(rect_point, rect_size)));
+            }
+            else
+            {
+                // upper rectangle
+                Point rect_point_1 = new Point(_transformer.ProjectX(Wave.areaUpperLeftX - xDelta / 2),
+                                                _transformer.ProjectY(Wave.areaUpperLeftY + yDelta / 2));
+                Size rect_size_1 = new Size(_transformer.ProjectXLength(Wave.Width * Instance.GetInfoCellWidth() + xDelta),
+                             _transformer.ProjectYLength(Wave.areaUpperLeftY - Wave.waveLowerRightY + yDelta));
+                _geometry.Children.Add(new RectangleGeometry(new Rect(rect_point_1, rect_size_1)));
+                //lower rectangle
+                Point rect_point_2 = new Point(_transformer.ProjectX(Wave.waveUpperLeftX - xDelta / 2),
+                                                _transformer.ProjectY(Wave.waveUpperLeftY + yDelta / 2));
+                Size rect_size_2 = new Size(_transformer.ProjectXLength(Wave.Width * Instance.GetInfoCellWidth() + xDelta),
+                             _transformer.ProjectYLength(Wave.waveUpperLeftY - Wave.areaLowerRightY + yDelta));
+                _geometry.Children.Add(new RectangleGeometry(new Rect(rect_point_2, rect_size_2)));
+            }
+        }
+
+    }
 
     public class SimulationVisualGoalMarker2D : SimulationVisual2D
     {
@@ -558,19 +690,63 @@ namespace RAWSimO.Visualization.Rendering
             Fill = VisualizationConstants.BrushBotVisual;
             Cursor = System.Windows.Input.Cursors.Hand;
             MouseDown += _elementClickAction;
-            Stroke = VisualizationConstants.BrushOutline;
-            StrokeThickness = StrokeThicknessReference;
+            Stroke = ColorManager.GenerateHueBrush(_bot.GetInfoHue());
+            StrokeThickness = StrokeThicknessReference * 7;
             // Initialize
             Init();
         }
 
         public override void UpdateMetaInfo()
         {
-            // Update color
-            string state = _bot.GetInfoState();
+            //if (_bot.GetInfoRadius)
+            //int botCount = _bot.GetInfoInstance().GetInfoMates()GetInfoMates() GetInfoBots().Count();
+            //double hue = 360.0 / botCount * (_bot.GetInfoID() + 1);
+            //Stroke = ColorManager.GenerateHueBrush(hue);
+            string state;
+            try
+            {
+                // Update color
+                state = _bot.GetInfoState();
+            }
+            catch
+            {
+                state = "";
+            }
             Brush currentColor = _animationController.GetBotColor(_bot, state);
             if (currentColor != Fill)
                 Fill = currentColor;
+        }
+
+        protected override Geometry DefiningGeometry { get { return _geometry; } }
+    }
+    public class SimulationVisualUnavailablePod2D : SimulationVisualImmovable2D
+    {
+        private readonly IWaypointInfo _waypoint;
+        private readonly RectangleGeometry _geometry;
+
+        public SimulationVisualUnavailablePod2D(
+            IWaypointInfo waypoint,
+            DetailLevel detailLevel,
+            Transformation2D transformer,
+            double strokeThickness,
+            MouseButtonEventHandler elementClickAction,
+            SimulationAnimation2D controller)
+            : base(waypoint, detailLevel, transformer, strokeThickness, elementClickAction, controller)
+        {
+            _waypoint= waypoint;
+            double width = _transformer.ProjectXLength(_waypoint.GetInfoHorizontalLength() * 2);
+            double height = _transformer.ProjectYLength(_waypoint.GetInfoVerticalLength() * 2);
+            _geometry =
+                new RectangleGeometry(
+                    new Rect(
+                        new Point(_transformer.ProjectX(waypoint.GetInfoCenterX()) - width/2, _transformer.ProjectY(waypoint.GetInfoCenterY()) - height/2),
+                        //new Point(-_transformer.ProjectXLength(_waypoint.GetInfoHorizontalLength()), -_transformer.ProjectYLength(_waypoint.GetInfoVerticalLength())),
+                        new Size(width, height)
+                        )
+                    );
+            Fill = Brushes.LightGoldenrodYellow;
+            Stroke = Brushes.Gray;
+            StrokeThickness = StrokeThicknessReference * 2;
         }
 
         protected override Geometry DefiningGeometry { get { return _geometry; } }
@@ -598,14 +774,15 @@ namespace RAWSimO.Visualization.Rendering
             _geometry =
                 new RectangleGeometry(
                     new Rect(
-                        new Point(-_transformer.ProjectXLength(_pod.GetInfoRadius()), -_transformer.ProjectYLength(_pod.GetInfoRadius())),
-                        new Size(_transformer.ProjectXLength(_pod.GetInfoRadius() * 2), _transformer.ProjectYLength(_pod.GetInfoRadius() * 2))));
-            // Paint it
-            Fill = VisualizationConstants.BrushPodVisual;
-            Cursor = System.Windows.Input.Cursors.Hand;
-            MouseDown += _elementClickAction;
-            Stroke = VisualizationConstants.BrushOutline;
+                        new Point(-_transformer.ProjectXLength(_pod.GetInfoHorizontalLength()), -_transformer.ProjectYLength(_pod.GetInfoVerticalLength())),
+                        new Size(_transformer.ProjectXLength(_pod.GetInfoHorizontalLength() * 2), _transformer.ProjectYLength(_pod.GetInfoVerticalLength() * 2))));
+
+            Fill = Brushes.LightGray;
+            Stroke = Brushes.Black;
             StrokeThickness = StrokeThicknessReference;
+            Cursor = Cursors.Hand;
+            MouseDown += _elementClickAction;
+
             // Initialize
             Init();
         }
@@ -620,9 +797,14 @@ namespace RAWSimO.Visualization.Rendering
             }
             else
             {
-                if (Fill != VisualizationConstants.BrushPodVisual)
-                    Fill = VisualizationConstants.BrushPodVisual;
+                double colorKey = _pod.GetStatusColorKey();
+                if (colorKey == -2) Fill = Brushes.LightGray;
+                else if (colorKey == -1) Fill = Brushes.Gray;
+                else Fill = ColorManager.GenerateHueBrush(colorKey);
             }
+            StrokeThickness = _pod.GetPodLocked() > -1 ? 8 : StrokeThicknessReference;
+            double botHue = _pod.GetPodLocked();
+            Stroke = botHue > -1 ? ColorManager.GenerateHueBrush(botHue) : Brushes.Black;
         }
 
         protected override Geometry DefiningGeometry { get { return _geometry; } }
@@ -667,4 +849,6 @@ namespace RAWSimO.Visualization.Rendering
     }
 
     #endregion
+
+
 }

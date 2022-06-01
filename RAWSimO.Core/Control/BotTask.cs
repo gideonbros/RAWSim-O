@@ -2,6 +2,8 @@
 using RAWSimO.Core.Items;
 using RAWSimO.Core.Management;
 using RAWSimO.Core.Waypoints;
+using RAWSimO.Core.Bots;
+using RAWSimO.Core;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -46,7 +48,290 @@ namespace RAWSimO.Core.Control
         /// </summary>
         public abstract void Finish();
     }
+    /// <summary>
+    /// Class represents a task that is assigned onto bot only for the 
+    /// duration of aborting a task(breaking to the nearest waypoint
+    /// </summary>
+    public class AbortingTask : BotTask
+    {
+        /// <summary>
+        /// Constructs new AbortingTask
+        /// </summary>
+        /// <param name="instance">This instance</param>
+        /// <param name="bot"><see cref="Bot"/> that will execute this task</param>
+        public AbortingTask(Instance instance, Bot bot) : base(instance, bot)
+        {
+        }
+        /// <summary>
+        /// Type of this Task
+        /// </summary>
+        public override BotTaskType Type => BotTaskType.AbortingTask;
+        /// <summary>
+        /// Cancel this task
+        /// </summary>
+        public override void Cancel()
+        {
+            //Not implemented for now
+        }
+        /// <summary>
+        /// Finish this task by notifying needed managers
+        /// </summary>
+        public override void Finish()
+        {
+            //Not implemented for now
+        }
+        /// <summary>
+        /// Prepare this task for execution
+        /// </summary>
+        public override void Prepare()
+        {
+            //Not implemented for now
+        }
+    }
+    /// <summary>
+    /// this class represents a task of assisting at a waypoint
+    /// </summary>
+    public class AssistTask : BotTask
+    {
+        /// <summary>
+        /// Constructs new AssistTask for a waypoint
+        /// </summary>
+        /// <param name="instance">current instance</param>
+        /// <param name="assistant">Bot which will execute the assist task</param>
+        /// <param name="waypoint">Waypoint on which assist is needed</param>
+        /// <param name="botToAssist">Bot which needs assistance</param>
+        public AssistTask(Instance instance, Bot assistant, Waypoint waypoint, Bot botToAssist) 
+            : base(instance, assistant)
+        {
+            Waypoint = waypoint;
+            BotToAssist = botToAssist;
+            BotToAssistArrived = false;
+            AssistantArrived = false;
+        }
+        /// <summary>
+        /// Construct new AssistTask for a location on idx
+        /// </summary>
+        /// <param name="instance">current instance</param>
+        /// <param name="assistant">Bot which will execute the assist task</param>
+        /// <param name="idx">Index at which the assist is needed </param>
+        /// <param name="botToAssist">Bot which needs assistance</param>
+        public AssistTask(Instance instance, Bot assistant, int idx, Bot botToAssist) 
+            :this(instance, assistant, instance.Waypoints[idx], botToAssist ) { }
 
+        /// <summary>
+        /// returns whether Bot that needs assistance has arrived
+        /// </summary>
+        public bool BotToAssistArrived { get; set; }
+        /// <summary>
+        /// returns whether Bot that offers assistance has arrived
+        /// </summary>
+        public bool AssistantArrived { get; set; }
+        /// <summary>
+        /// Bot which needs assistance
+        /// </summary>
+        public Bot BotToAssist { get; private set; }
+        /// <summary>
+        /// Waypoint at which the assist is needed
+        /// </summary>
+        public Waypoint Waypoint { get; private set; }
+        /// <summary>
+        /// Type of the Task
+        /// </summary>
+        public override BotTaskType Type => BotTaskType.AssistTask;
+        /// <summary>
+        /// Cancel this task
+        /// </summary>
+        public override void Cancel()
+        {
+            //Not implemented for now
+        }
+        /// <summary>
+        /// finish this task
+        /// </summary>
+        public override void Finish()
+        {
+            //Not implemented for now
+        }
+        /// <summary>
+        /// prepare this task
+        /// </summary>
+        public override void Prepare()
+        {
+            //Not implemented for now
+        }
+    }
+    ///<summary>
+    /// This class represents a task of gathering multiple items 
+    ///</summary>
+    public class MultiPointGatherTask : BotTask
+    {   
+         /// <summary>
+        /// Creates a new task.
+        /// </summary>
+        /// <param name="instance">The instance this task belongs to.</param>
+        /// <param name="bot">The bot that shall execute the task.</param>
+        /// <param name="order">DummyOrder which will be transformed to task</param>
+        public MultiPointGatherTask(Instance instance, Bot bot, Order order)
+            : base(instance, bot)
+        {
+            // clear the previous order tracking and give new order
+            Instance.Controller.MateScheduler.NewOrderInItemTable(bot.ID, order.ID);
+            Locations = new List<Waypoint>();
+            PodLocations = new List<Waypoint>();
+            PodItems = new List<SimpleItemDescription>();
+            Times = new List<double>();
+            LocationItemDictionary = new Dictionary<Waypoint, List<ItemDescription>>();
+            //foreach (var position in order.Positions)
+            // Use the ordered item list to suggest the preferred item order as determined by the optmization
+            foreach (var item in order.OrderedItemList)
+            {
+                Waypoint point = instance.GetWaypointByID(item.ID);
+                // locations where robot will come
+                Locations.Add(point);
+                // true locations of the pod so that the mapping of the
+                // bot location and the pod location is tracked
+                PodLocations.Add(point);
+                PodItems.Add(item as SimpleItemDescription);
+                Instance.Controller.MateScheduler.itemTable[bot.ID].AddAddress((item as SimpleItemDescription).location);
+                Times.Add(order.Times[item]);
+                if (!LocationItemDictionary.ContainsKey(point))
+                    LocationItemDictionary.Add(point, new List<ItemDescription>());
+                LocationItemDictionary[point].Add(item);
+            }
+
+            Order = order;
+
+            // updated the ID of the order
+            order.movableStationID = bot.GetInfoID();
+            order.movableStationHue = bot.GetInfoHue();
+            DropWaypoint = null; //currently DropWaypoint is ignored (from OrderFile)
+        }
+        /// <summary>n
+        /// List of locations that the robot will visit
+        /// </summary>
+        public List<Waypoint> Locations {get; private set;}
+        public List<Waypoint> PodLocations { get; private set; }
+        public List<SimpleItemDescription> PodItems { get; private set; }
+
+        // this dictionary is only used for visualization
+        // if there are two items on the same location, visualization will not recognize that
+        // but the location will still be visited two times
+        public Dictionary<Waypoint, List<ItemDescription>> LocationItemDictionary;
+        /// <summary>
+        /// order from which the task was created
+        /// </summary>
+        public Order Order { get; set; }
+        /// <summary>
+        /// Represents a list of times needed for each item
+        /// </summary>
+        public List<double> Times { get; set; }
+        /// <summary>
+        /// Item drop waypoint
+        /// </summary>
+        public Waypoint DropWaypoint { get; set; }
+        /// <summary>
+        /// The type of the task.
+        /// </summary>
+        public override BotTaskType Type => BotTaskType.MultiPointGatherTask;
+        public override void Cancel()
+        {
+            //Not implemented for now
+        }
+        /// <summary>
+        /// Finish the task and signal OrderManager
+        /// </summary>
+        public override void Finish()
+        {
+            MovableStation ms = Bot as MovableStation;
+            ms.AssignedOrders.First().Completed = true;
+            ms.RemoveAnyCompletedOrder(Instance.Controller.CurrentTime);
+        }
+        /// <summary>
+        /// Prepares the task by adjusting waypoints so that they are not blocked by pods
+        /// </summary>
+        public override void Prepare()
+        {
+            if (Locations == null) throw new TaskCanceledException("DummyTask Location was unitialized but Prepare() was called");
+            // go through all task locations
+            for (int i = 0; i < Locations.Count; ++i)
+            {
+                bool found = false;
+                // check if this is the location with the pod
+                if (!Locations[i].HasPod)
+                {
+                    bool _found = false;
+                    foreach(var wp in Locations[i].Paths)
+                    {
+                        if(wp.HasPod)
+                        {
+                            _found = true;
+                            Locations[i] = wp;
+                            break;
+                        }
+                    }
+                    if(!_found)
+                        throw new Exception("Locatons should have pods!" + Locations[i].ToString() + " does not have pod");
+                }
+                
+                // find the neighbouring location waypoint which is clear
+                foreach (Waypoint newWaypoint in Locations[i].Paths)
+                {
+                    Waypoint location = null;
+                    // if it doesn't have a pod
+                    if (!newWaypoint.HasPod)
+                    {
+                        // find the closest (BFS) access point (queue position)
+                        // this also covers the case when
+                        location = path_BFS(newWaypoint);
+                        // if found, this is the queue point
+                        if (location != null)
+                        {
+                            Locations[i] = location;
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+                //if this part is reached then no available position was found, throw error
+                if(!found)
+                    throw new Exception("there was no available position next to " + Locations[i].ToString());
+            }
+        }
+
+        /// <summary>
+        /// Finding the closes access point via BFS for a single waypoint.
+        /// </summary>
+        /// <param name="startWp">Starting waypoint, usally with pod</param>
+        /// <returns></returns>
+        public Waypoint path_BFS(Waypoint startWp)
+        {
+            Waypoint location = null;
+            Queue<Waypoint> wps = new Queue<Waypoint>();
+            List<Waypoint> visited = new List<Waypoint>();
+            wps.Enqueue(startWp);
+            while (wps.Count > 0)
+            {
+                Waypoint currWp = wps.Dequeue();
+                visited.Add(currWp);
+                if (!currWp.HasPod)
+                {
+                    if (currWp.isAccessPoint)
+                    {
+                        location = currWp;
+                        break;
+                    }
+                    else
+                    {
+                        foreach(var wp in currWp.Paths)
+                            if (!visited.Contains(wp))
+                                wps.Enqueue(wp);
+                    }
+                }
+            }
+            return location;
+        }
+
+    }
     /// <summary>
     /// This class represents a park pod task.
     /// </summary>

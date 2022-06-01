@@ -1525,8 +1525,8 @@ namespace RAWSimO.Core.Statistics
             _entryValues[FootPrintEntry.OrdersRejected] = instance.StatOverallOrdersRejected;
             _entryValues[FootPrintEntry.BundlesInBacklogRemaining] = instance.ItemManager.BacklogBundleCount;
             _entryValues[FootPrintEntry.OrdersInBacklogRemaining] = instance.ItemManager.BacklogOrderCount;
-            _entryValues[FootPrintEntry.BundlesInBacklogAvg] = instance.Observer.BundleOrderSituationLog.Average(d => d.BacklogBundleCount);
-            _entryValues[FootPrintEntry.OrdersInBacklogAvg] = instance.Observer.BundleOrderSituationLog.Average(d => d.BacklogOrderCount);
+            _entryValues[FootPrintEntry.BundlesInBacklogAvg] = instance.Observer.BundleOrderSituationLog.Any() ? instance.Observer.BundleOrderSituationLog.Average(d => d.BacklogBundleCount) : 0.0;
+            _entryValues[FootPrintEntry.OrdersInBacklogAvg] = instance.Observer.BundleOrderSituationLog.Any() ? instance.Observer.BundleOrderSituationLog.Average(d => d.BacklogOrderCount) : 0.0;
             // Overall performance
             _entryValues[FootPrintEntry.BundlesHandled] = instance.StatOverallBundlesHandled;
             _entryValues[FootPrintEntry.ItemsHandled] = instance.StatOverallItemsHandled;
@@ -1542,10 +1542,10 @@ namespace RAWSimO.Core.Statistics
             _entryValues[FootPrintEntry.DistanceEstimated] = instance.StatOverallDistanceEstimated;
             _entryValues[FootPrintEntry.DistanceRequestedOptimal] = instance.Bots.Sum(b => b.StatDistanceRequestedOptimal);
             _entryValues[FootPrintEntry.TimeMoving] = instance.Bots.Average(b => b.StatTotalTimeMoving);
-            _entryValues[FootPrintEntry.TimeQueueing] = instance.Bots.Average(b => b.StatTotalTimeQueueing);
+            _entryValues[FootPrintEntry.TimeQueueing] = instance.Bots.Average(b => b.StatTotalTimeQueuing);
             _entryValues[FootPrintEntry.TripDistance] = instance.StatOverallDistanceTraveled / instance.Waypoints.Sum(w => w.StatOutgoingTrips);
             _entryValues[FootPrintEntry.TripTime] = instance.Waypoints.Sum(w => w.StatOutgoingTripTime) / instance.Waypoints.Sum(w => w.StatOutgoingTrips);
-            _entryValues[FootPrintEntry.TripTimeWithoutQueueing] = (instance.Waypoints.Sum(w => w.StatOutgoingTripTime) - instance.Bots.Sum(b => b.StatTotalTimeQueueing)) / instance.Waypoints.Sum(w => w.StatOutgoingTrips);
+            _entryValues[FootPrintEntry.TripTimeWithoutQueueing] = (instance.Waypoints.Sum(w => w.StatOutgoingTripTime) - instance.Bots.Sum(b => b.StatTotalTimeQueuing)) / instance.Waypoints.Sum(w => w.StatOutgoingTrips);
             _entryValues[FootPrintEntry.TripCount] = instance.Waypoints.Sum(w => w.StatOutgoingTrips);
             _entryValues[FootPrintEntry.LastMileTripOStationCount] = instance.OStationTripCount;
             _entryValues[FootPrintEntry.LastMileTripOStationTimeAvg] = instance.OStationTripTimeAvg;
@@ -1589,7 +1589,7 @@ namespace RAWSimO.Core.Statistics
             // Rates
             _entryValues[FootPrintEntry.BundleThroughputRate] = instance.StatOverallBundlesHandled / TimeSpan.FromSeconds(instance.SettingConfig.SimulationDuration).TotalHours;
             _entryValues[FootPrintEntry.ItemThroughputRate] = instance.StatOverallItemsHandled / TimeSpan.FromSeconds(instance.SettingConfig.SimulationDuration).TotalHours;
-            _entryValues[FootPrintEntry.ItemThroughputRateUB] = instance.OutputStations.Any() ? UpperBoundHelper.CalcUBItemThroughputRate(instance, instance.OutputStations.Where(s => s.StatNumItemsPicked > 0).Average(s => s.StatItemPileOn)) : 0;
+            _entryValues[FootPrintEntry.ItemThroughputRateUB] = instance.OutputStations.Any() ? UpperBoundHelper.CalcUBItemThroughputRate(instance, instance.OutputStations.Average(s => s.StatItemPileOn)) : 0;
             _entryValues[FootPrintEntry.ItemThroughputRateScore] = (double)_entryValues[FootPrintEntry.ItemThroughputRate] / (double)_entryValues[FootPrintEntry.ItemThroughputRateUB];
             _entryValues[FootPrintEntry.LineThroughputRate] = instance.StatOverallLinesHandled / TimeSpan.FromSeconds(instance.SettingConfig.SimulationDuration).TotalHours;
             _entryValues[FootPrintEntry.OrderThroughputRate] = instance.StatOverallOrdersHandled / TimeSpan.FromSeconds(instance.SettingConfig.SimulationDuration).TotalHours;
@@ -1630,10 +1630,10 @@ namespace RAWSimO.Core.Statistics
             _entryValues[FootPrintEntry.LateOrdersRate] = instance._statOrderLatenessTimes.Count(l => l > 0) / TimeSpan.FromSeconds(instance.SettingConfig.SimulationDuration).TotalHours;
             _entryValues[FootPrintEntry.OnTimeOrdersRate] = instance._statOrderLatenessTimes.Count(l => l <= 0) / TimeSpan.FromSeconds(instance.SettingConfig.SimulationDuration).TotalHours;
             // Item pile-on
-            _entryValues[FootPrintEntry.ItemPileOneAvg] = instance.OutputStations.Count == 0 ? 0 : instance.OutputStations.Where(s => s.StatNumItemsPicked > 0).Average(s => s.StatItemPileOn);
-            _entryValues[FootPrintEntry.ItemPileOneMed] = instance.OutputStations.Count == 0 ? 0 : StatisticsHelper.GetMedian(instance.OutputStations.Where(s => s.StatNumItemsPicked > 0).Select(s => s.StatItemPileOn));
-            _entryValues[FootPrintEntry.ItemPileOneLQ] = instance.OutputStations.Count == 0 ? 0 : StatisticsHelper.GetLowerQuartile(instance.OutputStations.Where(s => s.StatNumItemsPicked > 0).Select(s => s.StatItemPileOn));
-            _entryValues[FootPrintEntry.ItemPileOneUQ] = instance.OutputStations.Count == 0 ? 0 : StatisticsHelper.GetUpperQuartile(instance.OutputStations.Where(s => s.StatNumItemsPicked > 0).Select(s => s.StatItemPileOn));
+            _entryValues[FootPrintEntry.ItemPileOneAvg] = instance.OutputStations.Count == 0 ? 0 : instance.OutputStations.Average(s => s.StatItemPileOn);
+            _entryValues[FootPrintEntry.ItemPileOneMed] = instance.OutputStations.Count == 0 ? 0 : StatisticsHelper.GetMedian(instance.OutputStations.Select(s => s.StatItemPileOn));
+            _entryValues[FootPrintEntry.ItemPileOneLQ] = instance.OutputStations.Count == 0 ? 0 : StatisticsHelper.GetLowerQuartile(instance.OutputStations.Select(s => s.StatItemPileOn));
+            _entryValues[FootPrintEntry.ItemPileOneUQ] = instance.OutputStations.Count == 0 ? 0 : StatisticsHelper.GetUpperQuartile(instance.OutputStations.Select(s => s.StatItemPileOn));
             // Injected item pile-on
             _entryValues[FootPrintEntry.InjectedItemPileOneAvg] = instance.OutputStations.Count == 0 ? 0 : instance.OutputStations.Average(s => s.StatInjectedItemPileOn);
             _entryValues[FootPrintEntry.InjectedItemPileOneMed] = instance.OutputStations.Count == 0 ? 0 : StatisticsHelper.GetMedian(instance.OutputStations.Select(s => s.StatInjectedItemPileOn));
@@ -3696,6 +3696,9 @@ namespace RAWSimO.Core.Statistics
                 case BotTaskType.Insert: task = 'I'; break;
                 case BotTaskType.Extract: task = 'E'; break;
                 case BotTaskType.Rest: task = 'S'; break;
+                case BotTaskType.MultiPointGatherTask: task = 'M'; break;
+                case BotTaskType.AssistTask: task = 'A'; break;
+                case BotTaskType.AbortingTask: task = '!'; break;
                 default: throw new ArgumentException("Unknown bot task type: " + BotTask.ToString());
             }
             return

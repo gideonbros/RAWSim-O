@@ -40,6 +40,16 @@ namespace RAWSimO.Core.IO
         [XmlAttribute]
         public double Radius;
         /// <summary>
+        /// The horizontal length of the pod.
+        /// </summary>
+        [XmlAttribute]
+        public double HorizontalLength;
+        /// <summary>
+        /// The vertical length of the pod.
+        /// </summary>
+        [XmlAttribute]
+        public double VerticalLength;
+        /// <summary>
         /// The initial orientation of the pod.
         /// </summary>
         [XmlAttribute]
@@ -66,6 +76,8 @@ namespace RAWSimO.Core.IO
                 X = value.X,
                 Y = value.Y,
                 Radius = value.Radius,
+                HorizontalLength = value.HorizontalLength,
+                VerticalLength = value.VerticalLength,
                 Orientation = value.Orientation,
                 Tier = value.Tier.ID,
                 Capacity = value.Capacity
@@ -87,7 +99,7 @@ namespace RAWSimO.Core.IO
         /// <returns>The original object created at the instance.</returns>
         public Pod Submit(Instance instance)
         {
-            return instance.CreatePod(ID, instance.GetTierByID(Tier), X, Y, Radius, Orientation, Capacity);
+            return instance.CreatePod(ID, instance.GetTierByID(Tier), X, Y, Radius, HorizontalLength, VerticalLength, Orientation, Capacity);
         }
 
         #endregion

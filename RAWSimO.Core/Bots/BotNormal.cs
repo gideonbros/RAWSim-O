@@ -1,20 +1,18 @@
 ﻿using RAWSimO.Core.Control;
 using RAWSimO.Core.Elements;
 using RAWSimO.Core.Waypoints;
+using RAWSimO.Core.Interfaces;
+using RAWSimO.Core.Info;
+using RAWSimO.Core.Geometrics;
 using RAWSimO.MultiAgentPathFinding;
+using RAWSimO.MultiAgentPathFinding.Physic;
+using RAWSimO.Toolbox;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using RAWSimO.Core.Interfaces;
-using RAWSimO.Core.Info;
-using RAWSimO.Core.Items;
-using RAWSimO.Core.Geometrics;
-using RAWSimO.MultiAgentPathFinding.Physic;
 using System.Diagnostics;
-using System.Text;
-using RAWSimO.Core.IO;
-using RAWSimO.Core.Metrics;
-using RAWSimO.Toolbox;
+
+
 
 namespace RAWSimO.Core.Bots
 {
@@ -22,20 +20,24 @@ namespace RAWSimO.Core.Bots
     /// Bot Driver
     /// Optimization is complete delegated to the controller, because he knows all the bots
     /// </summary>
-    public class BotNormal : Bot
+    public partial class BotNormal : Bot
     {
-
         #region Attributes
 
         /// <summary>
         /// The bots request a re-optimization after failing of next way point reservation
         /// </summary>
-        public static bool RequestReoptimizationAfterFailingOfNextWaypointReservation = false;
+        private static bool requestReoptimizationAfterFailingOfNextWaypointReservation = false;
+
+        /// <summary>
+        /// Gets BotType
+        /// </summary>
+        public override BotType Type => BotType.BotNormal; 
 
         /// <summary>
         /// The current destination of the bot as useful information for other mechanisms. If not available, the current waypoint will be provided.
         /// </summary>
-        internal override Waypoint TargetWaypoint { get { return _destinationWaypoint != null ? _destinationWaypoint : _currentWaypoint; } }
+        internal override Waypoint TargetWaypoint { get { return _destinationWaypoint ?? _currentWaypoint; } }
 
         /// <summary>
         /// destination way point
@@ -63,7 +65,7 @@ namespace RAWSimO.Core.Bots
             {
                 return _nextWaypoint;
             }
-            private set
+            internal set
             {
                 if (value != null) { _nextWaypointID = value.ID; }
                 _nextWaypoint = value;
@@ -71,73 +73,168 @@ namespace RAWSimO.Core.Bots
         }
         private Waypoint _nextWaypoint;
         private int _nextWaypointID;
-
+        /// <summary>
+        /// true if bot is starting the BotMove state
+        /// </summary>
+        public bool isStartingMove = false;
+        /// <summary>
+        /// true if bot is currently standing on destination waypoint
+        /// </summary>
+        public bool isInPlace = false;
+        /// <summary>
+        /// indicates if bot is breaking
+        /// </summary>
+        public bool IsBreaking { get
+            {
+                switch (CurrentBotStateType)
+                {
+                    case BotStateType.Move:
+                        return (StateQueuePeek() as BotMove).IsBreaking;
+                    case BotStateType.MoveToAssist:
+                        return (StateQueuePeek() as MoveToAssist).IsBreaking;
+                    default:
+                        return false;
+                }
+                    
+                
+            }
+        }
+        public SwarmMissionState SwarmState { get; set; } 
+        /// <summary>
+        /// Class containing swarm mission state.
+        /// </summary>
+        public class SwarmMissionState
+        {
+            public SwarmMissionState()
+            {
+                currentPalletGroup = -1;
+                isSwitchingPallets = false;
+                currentAddress = null;
+            }
+            /// <summary>
+            /// Current palletID to stack on
+            /// </summary>
+            public int currentPalletGroup {get; set;}
+            /// <summary>
+            /// Is bot switching pallets
+            /// </summary>
+            public bool isSwitchingPallets {get; set;}
+            /// <summary>
+            /// Current that bot is processing
+            /// </summary>
+            public string currentAddress {get; set;}
+        }
         /// <summary>
         /// next way point
         /// </summary>
-        public bool RequestReoptimization;
+        internal bool requestReoptimization;
 
         #region State handling
-
+        /// <summary>
+        /// Gets all the states in this bot state queue that are true on the <paramref name="predicate"/>
+        /// </summary>
+        /// <param name="predicate">Function which return true or false for a given state based on some condition</param>
+        /// <returns>Enumerable of states that satisfy the condition</returns>
+        public IEnumerable<IBotState> GetStatesWhere(Func<IBotState, bool> predicate) => _stateQueue.Where(predicate);
         /// <summary>
         /// The state queue
         /// </summary>
-        private Queue<IBotState> _stateQueue = new Queue<IBotState>();
+        protected LinkedList<IBotState> _stateQueue = new LinkedList<IBotState>();
         /// <summary>
         /// Returns the next state in the state queue without removing it.
         /// </summary>
         /// <returns>The next state in the state queue.</returns>
-        private IBotState StateQueuePeek() { return _stateQueue.Peek(); }
+        internal IBotState StateQueuePeek() { return _stateQueue.First?.Value; }
         /// <summary>
-        /// Enqueues a state.
+        /// Returns the second state in the state queue without modification of state queue
+        /// </summary>
+        /// <returns>The second state of the state queue</returns>
+        protected IBotState StateQueuePeekSecond() { return _stateQueue.First.Next.Value; }
+        /// <summary>
+        /// Enqueues a state at the end of the queue.
         /// </summary>
         /// <param name="state">The state to enqueue.</param>
-        private void StateQueueEnqueue(IBotState state) { _stateQueue.Enqueue(state); _currentInfoStateName = _stateQueue.Peek().ToString(); }
+        internal void StateQueueEnqueue(IBotState state) => _stateQueue.AddLast(state); 
+        /// <summary>
+        /// Enqueues a state at the front of the queue.
+        /// </summary>
+        /// <param name="state"></param>
+        internal void StateQueueEnqueueFront(IBotState state) => _stateQueue.AddFirst(state);
+        /// <summary>
+        /// Removes first occurence of a given IBotState from _StateQueue 
+        /// </summary>
+        /// <param name="state">IBotState to remove</param>
+        internal void StateQueueRemove(IBotState state) => _stateQueue.Remove(state);
         /// <summary>
         /// Dequeues the next state from the state queue.
         /// </summary>
         /// <returns>The state that was just dequeued.</returns>
-        private IBotState StateQueueDequeue() { IBotState state = _stateQueue.Dequeue(); _currentInfoStateName = _stateQueue.Any() ? _stateQueue.Peek().ToString() : ""; return state; }
+        internal IBotState StateQueueDequeue() 
+        {
+            IBotState state = _stateQueue.First.Value;
+            _stateQueue.RemoveFirst(); 
+            return state; 
+        }
         /// <summary>
         /// Clears the complete state queue.
         /// </summary>
-        private void StateQueueClear() { _stateQueue.Clear(); _currentInfoStateName = ""; }
+        internal void StateQueueClear() => _stateQueue.Clear();
         /// <summary>
         /// The number of states currently in the queue.
         /// </summary>
-        private int StateQueueCount { get { return _stateQueue.Count; } }
-
+        protected int StateQueueCount => _stateQueue.Count;
+        /// <summary>
+        /// The type of state this bot is currently in
+        /// </summary>
+        internal BotStateType CurrentBotStateType
+        {
+            get
+            {
+                IBotState state = StateQueuePeek();
+                return state != null ? state.Type : BotStateType.NullState;
+            }
+        }
         #endregion
+
+        /// <summary>
+        /// Flag determining whether to calculate time needed to move
+        /// </summary>
+        internal bool _calculateTimeNeededToMove;
+
+        /// <summary>
+        /// Stores the previous call time for calculating the traveled distance and new velocity
+        /// </summary>
+        internal double _previousCallTime;
 
         /// <summary>
         /// drive until
         /// </summary>
-        private double _driveDuration = -1.0;
+        internal double _driveDuration = -1.0;
 
         /// <summary>
         /// rotate until
         /// </summary>
-        private double _rotateDuration = -1.0;
+        internal double _rotateDuration = -1.0;
 
         /// <summary>
         /// rotate until
         /// </summary>
-        private double _waitUntil = -1.0;
+        internal double _waitUntil = -1.0;
 
         /// <summary>
         /// rotate until
         /// </summary>
-        private double _startOrientation = 0;
+        internal double _startOrientation = 0;
 
         /// <summary>
         /// rotate until
         /// </summary>
-        private double _endOrientation = 0;
+        internal double _endOrientation = 0;
 
         /// <summary>
         /// The agent reached the next way point
         /// </summary>
-        private bool _eventReachedNextWaypoint = false;
+        internal bool _eventReachedNextWaypoint = false;
 
         /// <summary>
         /// Indicates whether the first position info was received from the remote server.
@@ -147,12 +244,7 @@ namespace RAWSimO.Core.Bots
         /// <summary>
         /// Indicates the last state of the robot. This is used to lower the communication with the robot.
         /// </summary>
-        private BotStateType _lastExteriorState = BotStateType.Rest;
-
-        /// <summary>
-        /// The physics calculation object.
-        /// </summary>
-        public Physics Physics;
+        internal BotStateType _lastExteriorState = BotStateType.Rest;
 
         /// <summary>
         /// The current path.
@@ -177,6 +269,16 @@ namespace RAWSimO.Core.Bots
                     _currentPath = _path.Actions.Select(a => Instance.Controller.PathManager.GetWaypointByNodeId(a.Node)).Cast<IWaypointInfo>().ToList();
             }
         }
+        /// <summary>
+        /// Counter of all the PassBy events that happened in this instance
+        /// </summary>
+        public static int TotalPassByEvents { get { return PassByEvent.TotalPassByEvents;  }
+                                              set { PassByEvent.TotalPassByEvents = value; }}
+        /// <summary>
+        /// Counter of total number of pass by events by hour. Keys are hours, values are number of events in a given hour
+        /// </summary>
+        public static Dictionary<int, int> PassByEvents { get { return PassByEvent.PassByEvents; }
+                                                          set { PassByEvent.PassByEvents = value; }}
 
         #endregion
 
@@ -198,18 +300,40 @@ namespace RAWSimO.Core.Bots
         /// <param name="y">The y.</param>
         public BotNormal(int id, Instance instance, double radius, double podTransferTime, double acceleration, double deceleration, double maxVelocity, double turnSpeed, double collisionPenaltyTime, double x = 0.0, double y = 0.0) : base(instance)
         {
-            this.ID = id;
-            this.Instance = instance;
-            this.Radius = radius;
-            this.X = x;
-            this.Y = y;
-            this.PodTransferTime = podTransferTime;
-            this.MaxAcceleration = acceleration;
-            this.MaxDeceleration = deceleration;
-            this.MaxVelocity = maxVelocity;
-            this.TurnSpeed = turnSpeed;
-            this.CollisionPenaltyTime = collisionPenaltyTime;
-            this.Physics = new Physics(acceleration, deceleration, maxVelocity, turnSpeed);
+            ID = id;
+            Instance = instance;
+            Radius = radius;
+            X = x;
+            Y = y;
+            PodTransferTime = podTransferTime;
+            MaxAcceleration = acceleration;
+            MaxDeceleration = deceleration;
+            MaxVelocity = maxVelocity;
+            TurnSpeed = turnSpeed;
+            CollisionPenaltyTime = collisionPenaltyTime;
+            Physics = new Physics(acceleration, deceleration, maxVelocity, turnSpeed);
+            SwarmState = new SwarmMissionState();
+        }
+
+        /// <summary>
+        /// Copy Constructor
+        /// </summary>
+        /// <param name="other"><see cref="BotNormal"/> to be copied</param>
+        public BotNormal(BotNormal other):base(other.Instance)
+        {
+            ID = other.ID;
+            Instance = other.Instance;
+            Radius = other.Radius;
+            X = other.X;
+            Y = other.Y;
+            PodTransferTime = other.PodTransferTime;
+            MaxAcceleration = other.MaxAcceleration;
+            MaxDeceleration = other.MaxDeceleration;
+            MaxVelocity = other.MaxVelocity;
+            TurnSpeed = other.TurnSpeed;
+            CollisionPenaltyTime = other.CollisionPenaltyTime;
+            Physics = new Physics(other.MaxAcceleration, other.MaxDeceleration, other.MaxVelocity, other.TurnSpeed);
+            
         }
 
         /// <summary>
@@ -241,8 +365,30 @@ namespace RAWSimO.Core.Bots
                 _currentWaypoint = value;
                 // If the current waypoint belongs to a queue, notify the corresponding manager
                 if (_currentWaypoint.QueueManager != null)
-                    // Notify the manager about this bot joining the queue even if the bot accidentally joined it
-                    _currentWaypoint.QueueManager.onBotJoinQueue(this);
+                {
+                    if ((_currentWaypoint.QueueManager.QueueWaypoint.InputStation != null && !this.IgnoreInputPalletStandQueue) ||
+                        (_currentWaypoint.QueueManager.QueueWaypoint.OutputStation != null && !this.IgnoreOutputPalletStandQueue))
+                        // Notify the manager about this bot joining the pallet stand queue
+                        _currentWaypoint.QueueManager.onBotJoinQueue(this);
+                }
+            }
+        }
+
+        public static bool RequestReoptimizationAfterFailingOfNextWaypointReservation { get => requestReoptimizationAfterFailingOfNextWaypointReservation; set => requestReoptimizationAfterFailingOfNextWaypointReservation = value; }
+        public bool RequestReoptimization { get => requestReoptimization; set => requestReoptimization = value; }
+        public Physics Physics { get; set; }
+        public string CurrentInfoStateName
+        {
+            get
+            {
+                try
+                {
+                    return _stateQueue.Count != 0 ? StateQueuePeek().ToString() : "";
+                }
+                catch (NullReferenceException) //unknown crash
+                {
+                    return "";
+                }
             }
         }
         /// <summary>
@@ -257,12 +403,18 @@ namespace RAWSimO.Core.Bots
         /// <exception cref="System.ArgumentException">Unknown task-type:  + t.Type</exception>
         public override void AssignTask(BotTask t)
         {
-            this.CurrentTask = t;
+            
             // Warn when clearing incomplete tasks
             if (StateQueueCount > 0)
-                Instance.LogDefault("WARNING! Aborting some incomplete task: " + string.Join(", ", _stateQueue.Select(s => s.Type)));
-            // Forget old tasks
-            StateQueueClear();
+            {
+                // Abort drive and get stop waypoint
+                Waypoint stopWP = AbortDrive(GetSpeed());
+                StateQueueClear();
+                AppendMoveStates(CurrentWaypoint, stopWP, true, true);
+                CurrentTask.Cancel();
+            }
+            CurrentTask = t;
+
 
             switch (t.Type)
             {
@@ -282,7 +434,7 @@ namespace RAWSimO.Core.Bots
                         return;
                     }
                     // Add the move states for parking the pod
-                    _appendMoveStates(CurrentWaypoint, storePodTask.StorageLocation);
+                    AppendMoveStates(CurrentWaypoint, storePodTask.StorageLocation);
                     // After bringing the pod to the storage location set it down
                     StateQueueEnqueue(new BotSetdownPod(storePodTask.StorageLocation));
 
@@ -297,11 +449,11 @@ namespace RAWSimO.Core.Bots
                     if (Pod == null)
                     {
                         // Add states for getting the pod
-                        _appendMoveStates(CurrentWaypoint, repositionPodTask.Pod.Waypoint);
+                        AppendMoveStates(CurrentWaypoint, repositionPodTask.Pod.Waypoint);
                         // Add state for picking up pod
                         StateQueueEnqueue(new BotPickupPod(repositionPodTask.Pod));
                         // Add states for repositioning the pod
-                        _appendMoveStates(repositionPodTask.Pod.Waypoint, repositionPodTask.StorageLocation);
+                        AppendMoveStates(repositionPodTask.Pod.Waypoint, repositionPodTask.StorageLocation);
                         // After bringing the pod to the storage location set it down
                         StateQueueEnqueue(new BotSetdownPod(repositionPodTask.StorageLocation));
                         // Log a repositioning move
@@ -325,13 +477,13 @@ namespace RAWSimO.Core.Bots
                     if (storeTask.ReservedPod != Pod)
                     {
                         var podWaypoint = storeTask.ReservedPod.Waypoint;
-                        _appendMoveStates(CurrentWaypoint, podWaypoint);
+                        AppendMoveStates(CurrentWaypoint, podWaypoint);
                         StateQueueEnqueue(new BotPickupPod(storeTask.ReservedPod));
-                        _appendMoveStates(podWaypoint, storeTask.InputStation.Waypoint);
+                        AppendMoveStates(podWaypoint, storeTask.InputStation.Waypoint);
                     }
                     else
                     {
-                        _appendMoveStates(CurrentWaypoint, storeTask.InputStation.Waypoint);
+                        AppendMoveStates(CurrentWaypoint, storeTask.InputStation.Waypoint);
                     }
                     StateQueueEnqueue(new BotGetItems(storeTask));
 
@@ -345,13 +497,13 @@ namespace RAWSimO.Core.Bots
                     if (extractTask.ReservedPod != Pod)
                     {
                         var podWaypoint = extractTask.ReservedPod.Waypoint;
-                        _appendMoveStates(CurrentWaypoint, podWaypoint);
+                        AppendMoveStates(CurrentWaypoint, podWaypoint);
                         StateQueueEnqueue(new BotPickupPod(extractTask.ReservedPod));
-                        _appendMoveStates(podWaypoint, extractTask.OutputStation.Waypoint);
+                        AppendMoveStates(podWaypoint, extractTask.OutputStation.Waypoint);
                     }
                     else
                     {
-                        _appendMoveStates(CurrentWaypoint, extractTask.OutputStation.Waypoint);
+                        AppendMoveStates(CurrentWaypoint, extractTask.OutputStation.Waypoint);
                     }
                     StateQueueEnqueue(new BotPutItems(extractTask));
 
@@ -360,8 +512,60 @@ namespace RAWSimO.Core.Bots
                     var restTask = t as RestTask;
                     // Only append move task to get to resting location, if we are not at it yet
                     if ((restTask.RestingLocation != null) && (CurrentWaypoint != restTask.RestingLocation || Moving))
-                        _appendMoveStates(CurrentWaypoint, restTask.RestingLocation);
+                        AppendMoveStates(CurrentWaypoint, restTask.RestingLocation);
                     StateQueueEnqueue(new BotRest(restTask.RestingLocation, BotRest.DEFAULT_REST_TIME)); // TODO set paramterized wait time and adhere to it
+                    break;
+                case BotTaskType.MultiPointGatherTask:
+                    var MPGatherTask = t as MultiPointGatherTask;
+                    var inputPalletStand = (this as MovableStation).GetInputPalletStandWaypoint(MPGatherTask);
+
+                    //if inputPalletStandWaypoint is null, use CurrentWaypoint
+                    inputPalletStand ??= CurrentWaypoint;
+
+                    //first visit input pallet stand and get the pallet
+                    StateQueueEnqueue(new BotPrepareMoveToInputPalletStand());
+                    AppendMoveStates(CurrentWaypoint, inputPalletStand);
+                    StateQueueEnqueue(new BotGetPallet(inputPalletStand));
+
+                    //if see-off mate scheduling is turned on, enqueue specific state
+                    if (Instance.SettingConfig.SeeOffMateScheduling == true)
+                        StateQueueEnqueue(new WaitForSeeOffAssistance());
+
+                    //iterate over the locations of a list and mark them to be visited in that order
+                    for (int i = 0; i < MPGatherTask.Locations.Count; ++i)
+                    {
+                        StateQueueEnqueue(new PreparePartialTask(
+                            this,
+                            MPGatherTask.Locations[i], 
+                            MPGatherTask.PodItems[i].location,
+                            MPGatherTask.Order.PalletIDs[MPGatherTask.PodLocations[i]]));
+                    }
+
+                    //at the end, visit output pallet stand 
+                    StateQueueEnqueue(new BotPrepareMoveToOutputPalletStand());
+                    break;
+                case BotTaskType.AssistTask:
+                    RequestReoptimization = true;
+
+                    var assistTask = t as AssistTask;
+                    //move to needed waypoint
+                    AppendMoveStates(CurrentWaypoint, assistTask.Waypoint, true);
+
+                    // mate gets a task to assist, and this is queued
+                    // TODO: assistTask.Waypoints inside a single order should not be the same
+                    // enable this after refactoring
+                    var currentTask = (MultiPointGatherTask)assistTask.BotToAssist.CurrentTask;
+
+                    // NOTE: another fix connected to GetLocationAfter and GetBotCurrentItemAddress
+                    // now this will always be related to the last added address on the robot
+                    //string address = currentTask.PodItems[currentTask.Locations.FindIndex(l => l.ID == assistTask.Waypoint.ID)].location;
+                    string address = Instance.Controller.MateScheduler.GetBotCurrentItemAddress(assistTask.BotToAssist, assistTask.Waypoint);
+                    Instance.Controller.MateScheduler.itemTable[assistTask.BotToAssist.ID].UpdateAssignedPicker(address, ID);
+                    //enter the state of waiting for the other bot
+                    StateQueueEnqueue(new WaitForStation(assistTask.Waypoint));
+                    break;
+                case BotTaskType.AbortingTask:
+                    OnAbortingTaskAsigned();
                     break;
                 default:
                     throw new ArgumentException("Unknown task-type: " + t.Type);
@@ -377,19 +581,33 @@ namespace RAWSimO.Core.Bots
         /// </summary>
         /// <param name="waypointFrom">The from waypoint.</param>
         /// <param name="waypointTo">The destination waypoint.</param>
-        private void _appendMoveStates(Waypoint waypointFrom, Waypoint waypointTo)
+        internal void AppendMoveStates(Waypoint waypointFrom, Waypoint waypointTo, bool isMovingToAssist = false, bool isBreaking = false)
         {
-            double distance;
-            var checkPoints = Instance.Controller.PathManager.FindElevatorSequence(this, waypointFrom, waypointTo, out distance);
-            StatDistanceEstimated += distance;
+            //double distance;
+            //next line crashes, currently no elevators are used
 
+            //var checkPoints = Instance.Controller.PathManager.FindElevatorSequence(this, waypointFrom, waypointTo, out distance);
+            //StatDistanceEstimated += distance;
+            /*
             foreach (var point in checkPoints)
             {
-                StateQueueEnqueue(new BotMove(point.Item2));
+                IBotState newState = isMovingToAssist ? new MoveToAssist(point.Item2) : new BotMove(point.Item2);
+                StateQueueEnqueue(newState);
                 StateQueueEnqueue(new UseElevator(point.Item1, point.Item2, point.Item3));
             }
-
-            StateQueueEnqueue(new BotMove(waypointTo));
+            */
+            var state = isMovingToAssist ? new MoveToAssist(waypointTo, isBreaking) : new BotMove(waypointTo, isBreaking);
+            StateQueueEnqueue(state);
+        }
+        /// <summary>
+        /// prepends the move state
+        /// </summary>
+        /// <param name="waypointFrom">The from waypoint</param>
+        /// <param name="waypointTo">The destination waypoint</param>
+        internal void PrependMoveStates(Waypoint waypointFrom, Waypoint waypointTo,  bool isMovingToAssist = false, bool isBreaking = false)
+        {
+            var state = isMovingToAssist ? new MoveToAssist(waypointTo, isBreaking) : new BotMove(waypointTo, isBreaking);
+            StateQueueEnqueueFront(state);
         }
 
         /// <summary>
@@ -397,28 +615,11 @@ namespace RAWSimO.Core.Bots
         /// </summary>
         /// <param name="lastTime">The last time.</param>
         /// <param name="currentTime">The current time.</param>
-        private void DequeueState(double lastTime, double currentTime)
+        internal void DequeueState(double lastTime, double currentTime)
         {
             IBotState dequeuedState = StateQueueDequeue();
-
-            /*
-            if (_stateQueue.Count > 0)
-            {
-                //directly the next way point
-                var moveBot = _stateQueue.Peek() as BotMove;
-                if(moveBot != null && moveBot.DestinationWaypoint == CurrentWaypoint)
-                {
-                    DequeueState(currentTime);
-                    return;
-                }
-            }
-             * */
-
-            Debug.Assert(StateQueueCount == 0 || !(StateQueuePeek() is BotMove) || this.CurrentWaypoint.Tier.ID == ((BotMove)StateQueuePeek()).DestinationWaypoint.Tier.ID);
-
-            // Act on next task
-            if (StateQueueCount > 0)
-                StateQueuePeek().Act(this, lastTime, currentTime);
+            Debug.Assert(StateQueueCount == 0 || !(StateQueuePeek() is BotMove) || CurrentWaypoint.Tier.ID == ((BotMove)StateQueuePeek()).DestinationWaypoint.Tier.ID);
+            StatLastState = dequeuedState.Type;
         }
 
         /// <summary>
@@ -432,14 +633,26 @@ namespace RAWSimO.Core.Bots
             if (GetSpeed() > 0)
                 return false;
             if (X == waypoint.X && Y == waypoint.Y)
-                throw new ArgumentException("Already at the given waypoint!");
-
+            {
+                NextWaypoint = null;
+                if (RequestReoptimizationAfterFailingOfNextWaypointReservation)
+                    RequestReoptimization = true;
+                return false;
+            }
+                
             _startOrientation = Orientation;
             _endOrientation = Circle.GetOrientation(X, Y, waypoint.X, waypoint.Y);
-            var rotateDuration = Physics.getTimeNeededToTurn(_startOrientation, _endOrientation);
+
+            double rotateDuration;
+            // use the real turn speed only at the beginning and the end of the path, otherwise use a lower speed
+            if (this is MovableStation && (isInPlace || isStartingMove))
+                rotateDuration = Physics.getTimeNeededToTurn(_startOrientation, _endOrientation, Instance.layoutConfiguration.StartStopTurnSpeed);
+            else
+                rotateDuration = Physics.getTimeNeededToTurn(_startOrientation, _endOrientation);
+
             var waitUntil = Math.Max(_waitUntil, currentTime);
 
-            if (Instance.Controller.PathManager.RegisterNextWaypoint(this, currentTime, waitUntil, rotateDuration, CurrentWaypoint, waypoint))
+            if (Instance.Controller.PathManager.RegisterNextWaypoint(this, currentTime, waitUntil, rotateDuration, CurrentWaypoint, waypoint, out _))
             {
                 //set way point
                 NextWaypoint = waypoint;
@@ -449,8 +662,10 @@ namespace RAWSimO.Core.Bots
                 _rotateDuration = rotateDuration;
                 _driveDuration = Physics.getTimeNeededToMove(0, CurrentWaypoint.GetDistance(NextWaypoint));
 
-                return true;
+                //set the flag and reset the traveled distance
+                _calculateTimeNeededToMove = true;
 
+                return true;
             }
             else
             {
@@ -492,7 +707,11 @@ namespace RAWSimO.Core.Bots
         /// <returns><code>true</code> if the bot is resting, <code>false</code> otherwise.</returns>
         public bool IsResting()
         {
-            return StateQueueCount == 0 || StateQueuePeek() is BotRest;
+            if(this is MateBot) return false;
+            var type = StateQueueCount == 0 ? BotStateType.Rest : StateQueuePeek().Type;
+            return type == BotStateType.Rest || type == BotStateType.WaitingForMate || 
+                   type == BotStateType.WaitingForStation || type == BotStateType.PreparePartialTask ||
+                   type == BotStateType.WaitingForSeeOffAssistance || type == BotStateType.BotAssist;
         }
 
         /// <summary>
@@ -503,7 +722,23 @@ namespace RAWSimO.Core.Bots
             if (StateQueueCount > 0 && StateQueuePeek() is BotMove)
                 (StateQueuePeek() as BotMove).LogUnfinishedTrip(this);
         }
-
+        internal override Waypoint GetLocationAfter(int NrRegisteredLocations)
+        {
+            throw new NotImplementedException();
+        }
+        public override void OnAssistantAssigned()
+        {
+            throw new NotImplementedException();
+        }
+        /// <summary>
+        /// Gets destination waypoint of next <see cref="PreparePartialTask"/> 
+        /// </summary>
+        /// <returns>Waypoint of next <see cref="PreparePartialTask"/> if such exist or null if does not</returns>
+        public Waypoint NextPPTLocation => _stateQueue.FirstOrDefault(state => state.Type == BotStateType.PreparePartialTask)?.DestinationWaypoint;
+        /// <summary>
+        /// Property holding destination waypoint of this bots assistant
+        /// </summary>
+        public Waypoint AssistantDestination { get;  set; }
         #endregion
 
         #region Queueing zone tracking
@@ -511,7 +746,7 @@ namespace RAWSimO.Core.Bots
         /// <summary>
         /// Stores the last trip start time.
         /// </summary>
-        private double _queueTripStartTime = double.NaN;
+        internal double _queueTripStartTime = double.NaN;
         /// <summary>
         /// Contains all output station queueing areas.
         /// </summary>
@@ -525,15 +760,15 @@ namespace RAWSimO.Core.Bots
         /// </summary>
         /// <param name="station">The station to check.</param>
         /// <returns><code>true</code> if the bot is within the stations queueing area, <code>false</code> otherwise.</returns>
-        private bool IsInStationQueueZone(OutputStation station)
+        internal bool IsInStationQueueZone(OutputStation station)
         {
             if (_queueZonesOStations == null)
                 _queueZonesOStations = new VolatileIDDictionary<OutputStation, SimpleRectangle>(Instance.OutputStations.Select(s =>
                 {
-                    double lowX = s.Queues != null && s.Queues.Any() && s.Queues.First().Value.Any() ? s.Queues.Min(q => q.Value.Min(w => w.X)) : s.X - 0.5;
-                    double highX = s.Queues != null && s.Queues.Any() && s.Queues.First().Value.Any() ? s.Queues.Max(q => q.Value.Max(w => w.X)) : s.X + 0.5;
-                    double lowY = s.Queues != null && s.Queues.Any() && s.Queues.First().Value.Any() ? s.Queues.Min(q => q.Value.Min(w => w.Y)) : s.Y - 0.5;
-                    double highY = s.Queues != null && s.Queues.Any() && s.Queues.First().Value.Any() ? s.Queues.Max(q => q.Value.Max(w => w.Y)) : s.Y + 0.5;
+                    double lowX = s.Queues != null && s.Queues.Any() && s.Queues.First().Value.Any() ? s.Queues.Min(q => q.Value.Min(w => w.X)) : s.X - Instance.layoutConfiguration.HorizontalWaypointDistance / 2;
+                    double highX = s.Queues != null && s.Queues.Any() && s.Queues.First().Value.Any() ? s.Queues.Max(q => q.Value.Max(w => w.X)) : s.X + Instance.layoutConfiguration.HorizontalWaypointDistance / 2;
+                    double lowY = s.Queues != null && s.Queues.Any() && s.Queues.First().Value.Any() ? s.Queues.Min(q => q.Value.Min(w => w.Y)) : s.Y - Instance.layoutConfiguration.VerticalWaypointDistance / 2;
+                    double highY = s.Queues != null && s.Queues.Any() && s.Queues.First().Value.Any() ? s.Queues.Max(q => q.Value.Max(w => w.Y)) : s.Y + Instance.layoutConfiguration.VerticalWaypointDistance / 2;
                     return new VolatileKeyValuePair<OutputStation, SimpleRectangle>(s, new SimpleRectangle(s.Tier, lowX, lowY, highX - lowX, highY - lowY));
                 }).ToList());
             return _queueZonesOStations[station].IsContained(Tier, X, Y);
@@ -543,15 +778,15 @@ namespace RAWSimO.Core.Bots
         /// </summary>
         /// <param name="station">The station to check.</param>
         /// <returns><code>true</code> if the bot is within the stations queueing area, <code>false</code> otherwise.</returns>
-        private bool IsInStationQueueZone(InputStation station)
+        internal bool IsInStationQueueZone(InputStation station)
         {
             if (_queueZonesIStations == null)
                 _queueZonesIStations = new VolatileIDDictionary<InputStation, SimpleRectangle>(Instance.InputStations.Select(s =>
                 {
-                    double lowX = s.Queues != null && s.Queues.Any() && s.Queues.First().Value.Any() ? s.Queues.Min(q => q.Value.Min(w => w.X)) : s.X - 0.5;
-                    double highX = s.Queues != null && s.Queues.Any() && s.Queues.First().Value.Any() ? s.Queues.Max(q => q.Value.Max(w => w.X)) : s.X + 0.5;
-                    double lowY = s.Queues != null && s.Queues.Any() && s.Queues.First().Value.Any() ? s.Queues.Min(q => q.Value.Min(w => w.Y)) : s.Y - 0.5;
-                    double highY = s.Queues != null && s.Queues.Any() && s.Queues.First().Value.Any() ? s.Queues.Max(q => q.Value.Max(w => w.Y)) : s.Y + 0.5;
+                    double lowX = s.Queues != null && s.Queues.Any() && s.Queues.First().Value.Any() ? s.Queues.Min(q => q.Value.Min(w => w.X)) : s.X - Instance.layoutConfiguration.HorizontalWaypointDistance / 2;
+                    double highX = s.Queues != null && s.Queues.Any() && s.Queues.First().Value.Any() ? s.Queues.Max(q => q.Value.Max(w => w.X)) : s.X + Instance.layoutConfiguration.HorizontalWaypointDistance / 2;
+                    double lowY = s.Queues != null && s.Queues.Any() && s.Queues.First().Value.Any() ? s.Queues.Min(q => q.Value.Min(w => w.Y)) : s.Y - Instance.layoutConfiguration.VerticalWaypointDistance / 2;
+                    double highY = s.Queues != null && s.Queues.Any() && s.Queues.First().Value.Any() ? s.Queues.Max(q => q.Value.Max(w => w.Y)) : s.Y + Instance.layoutConfiguration.VerticalWaypointDistance / 2;
                     return new VolatileKeyValuePair<InputStation, SimpleRectangle>(s, new SimpleRectangle(s.Tier, lowX, lowY, highX - lowX, highY - lowY));
                 }).ToList());
             return _queueZonesIStations[station].IsContained(Tier, X, Y);
@@ -584,10 +819,11 @@ namespace RAWSimO.Core.Bots
         public override void Update(double lastTime, double currentTime)
         {
             //wait short start time
+
             if (currentTime < 0.2)
                 return;
             //bot is blocked
-            if (this._waitUntil >= currentTime)
+            if (_waitUntil >= currentTime)
             {
                 // We still want to update the statistics of the bot
                 _updateStatistics(currentTime - lastTime, X, Y);
@@ -659,25 +895,8 @@ namespace RAWSimO.Core.Bots
                 {
                     _updateMove(currentTime);
                 }
-
-                //_updatePassedWaypoints();
             }
         }
-
-        /*/// <summary>
-        /// _updates the passed way points.
-        /// </summary>
-        private void _updatePassedWaypoints()
-        {
-            //delete passed way points in skipped way points
-            for (int i = 0; i < skippendWaypoints.Count; i++)
-            {
-                if (Instance.Controller.PathManager.GetWaypointByNodeId(skippendWaypoints[i].Node).GetSquaredDistance(NextWaypoint) > GetSquaredDistance(NextWaypoint))
-                    skippendWaypoints.RemoveAt(i--);
-                else
-                    break;
-            }
-        }*/
 
         /// <summary>
         /// update the rotation to the target orientation
@@ -688,7 +907,11 @@ namespace RAWSimO.Core.Bots
             //stop the pod (this should already be 0)
             XVelocity = YVelocity = 0;
 
-            Orientation = Physics.getOrientationAfterTimeStep(_startOrientation, _endOrientation, currentTime - _waitUntil);
+            // use the real turn speed only at the beginning and the end of the path, otherwise use a lower speed
+            if (this is MovableStation && (isInPlace || isStartingMove))
+                Orientation = Physics.getOrientationAfterTimeStep(_startOrientation, _endOrientation, currentTime - _waitUntil, Instance.layoutConfiguration.StartStopTurnSpeed);
+            else 
+                Orientation = Physics.getOrientationAfterTimeStep(_startOrientation, _endOrientation, currentTime - _waitUntil);
 
             //set the pod orientation
             if (this.Pod != null && Instance.SettingConfig.RotatePods)
@@ -701,22 +924,18 @@ namespace RAWSimO.Core.Bots
         /// <param name="currentTime">time stamp: now</param>
         private void _updateMove(double currentTime)
         {
-            //get distance traveled
-            double distanceTraveled;
-            double speed;
-            Physics.getTimeNeededToMove(0, CurrentWaypoint.GetDistance(NextWaypoint));
-            Physics.GetDistanceTraveledAfterTimeStep(0, Math.Min(_driveDuration, currentTime - _waitUntil - _rotateDuration), out distanceTraveled, out speed);
+            double currentSpeed = GetSpeed();
+            if (currentSpeed > 0.1) isStartingMove = false; //reset flag
 
-            //set speed
-            XVelocity = Math.Cos(Orientation) * speed;
-            YVelocity = Math.Sin(Orientation) * speed;
+            getNewPosition(currentTime, currentSpeed, out var xNew, out var yNew, out _);//discard speed
 
-            //travel in percentage
-            var travelPercentage = distanceTraveled / NextWaypoint.GetDistance(CurrentWaypoint);
-
-            //initiate new positions and reset it during this method
-            var xNew = CurrentWaypoint.X * (1 - travelPercentage) + NextWaypoint.X * travelPercentage;
-            var yNew = CurrentWaypoint.Y * (1 - travelPercentage) + NextWaypoint.Y * travelPercentage;
+            Waypoint oldWaypoint = null, newWaypoint = null;
+            
+            if(Instance.SettingConfig.DetectPassByEvents)
+            {
+                oldWaypoint = Instance.FindWpFromXY(X, Y);
+                newWaypoint = Instance.FindWpFromXY(xNew, yNew);
+            }
 
             if (currentTime >= _waitUntil + _rotateDuration + _driveDuration)
             {
@@ -732,9 +951,22 @@ namespace RAWSimO.Core.Bots
             if (!Instance.Compound.BotCurrentTier[this].MoveBotOverride(this, xNew, yNew))
             {
                 // Log the potential collision
-                Instance.LogInfo("Potential collision (" + GetIdentfierString() + ") - adding check for crashhandler ...");
+                //Instance.LogInfo("Potential collision (" + GetIdentfierString() + ") - adding check for crashhandler ...");
                 // Mark the bot for collision investigation
                 Instance.BotCrashHandler.AddPotentialCrashBot(this);
+            }
+
+            if(Instance.SettingConfig.DetectPassByEvents)
+            {
+                newWaypoint.Bots.Add(this); //if this is already a part of Bots, nothing will happen
+                                            //if oldWaypoint is different from newWaypoint, log that bot left old waypoint
+                if (oldWaypoint != newWaypoint)
+                {
+                    if (oldWaypoint.Bots.Contains(this))
+                        oldWaypoint.Bots.Remove(this);
+                    //remove any possible pass by event of the previous waypoint
+                    PassByEvent.Remove(this, oldWaypoint);
+                }
             }
 
             // Check whether bot is now in destination's queueing area
@@ -755,6 +987,153 @@ namespace RAWSimO.Core.Bots
                         _queueTripStartTime = double.NaN;
                     }
             }
+
+            //in case this is MovableStation, check for other MovableStations passing by in the opposite directions
+            if(Instance.SettingConfig.DetectPassByEvents && this is MovableStation)
+            { 
+                //check all the neighboring waypoint
+                foreach(var neighborWp in newWaypoint.Paths)
+                {
+                    //check all moving movable stations in the neighboring waypoint
+                    foreach(var bot in neighborWp.Bots.Where(b => b is MovableStation && (b as MovableStation).CurrentBotStateType == BotStateType.Move))
+                    {
+                        const double tolerance = 0.25; //~15 degrees
+                        double orientationDifference = Math.Abs(Orientation - bot.Orientation);
+                        //if orientation difference is around PI, bots are passing by each other or they are oriented one towards another
+                        if (Math.PI - tolerance <= orientationDifference && orientationDifference <= Math.PI + tolerance)
+                        {
+                            var numTolerance = Instance.SettingConfig.NumericalTolerance;
+                            //if both bots have YVelocity zero, then their actual current waypoints need to have the same x and different y                                                                // horizontal pass   Vertical pass
+    /*picture on right*/    bool HorizontalPass = Math.Abs(YVelocity - 0) < numTolerance && Math.Abs(bot.YVelocity - 0) < numTolerance && newWaypoint.X == neighborWp.X && newWaypoint.Y != neighborWp.Y;  // | |<-O| |        |   | | |
+                            bool VertiacalPass  = Math.Abs(XVelocity - 0) < numTolerance && Math.Abs(bot.XVelocity - 0) < numTolerance && newWaypoint.Y == neighborWp.Y && newWaypoint.X != neighborWp.X;  // | |O->| |        | O | O |
+                                                                                                                                                                                                           //                  | | |   |
+                            //if bots are in Horizontal or vertical pass, log passing by event                                                                                                             //                  | V |   |
+                            if (HorizontalPass || VertiacalPass)
+                            {
+                                 PassByEvent.Log(new PassByEvent(this, bot, newWaypoint, neighborWp, currentTime), currentTime);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Calculate the next robot position and velocity
+        /// </summary>
+        /// <param name="currentTime"></param>
+        /// <param name="currentSpeed"></param>
+        /// <param name="xNew"></param>
+        /// <param name="yNew"></param>
+        /// <param name="speed"></param>
+        private void getNewPosition(double currentTime, double currentSpeed, out double xNew, out double yNew, out double speed)
+        {
+            //calculate time durations for different driving phases (acceleration, moving with maximum speed, deceleration)
+            if (_calculateTimeNeededToMove)
+            {
+                Physics.getTimeNeededToMove(currentSpeed, GetDistance(NextWaypoint));
+                _calculateTimeNeededToMove = false;
+                _previousCallTime = 0.0;
+                Physics.resetTotalDistanceTraveled();
+            }
+
+            double timeSpan = (currentTime - _waitUntil - _rotateDuration) - _previousCallTime;
+            _previousCallTime = (currentTime - _waitUntil - _rotateDuration);
+            Physics.GetDistanceTraveledAfterTimeStep(currentSpeed, timeSpan, out double distanceTraveledInTimeSpan, out double totalDistanceTraveled, out speed);
+
+            //set speed
+            XVelocity = Math.Cos(Orientation) * speed;
+            YVelocity = Math.Sin(Orientation) * speed;
+
+            ////initiate new positions and reset it during this method
+            xNew = X + Math.Cos(Orientation) * distanceTraveledInTimeSpan;
+            yNew = Y + Math.Sin(Orientation) * distanceTraveledInTimeSpan;
+        }
+
+        /// <summary>
+        /// Aborts current drive mission, clears Path, changes destinations, clears state queue and adds drive to closest waypoint
+        /// </summary>
+        /// <param name="currentSpeed">Current speed of this bot</param>
+        /// <returns>Waypoint at which bot will stop</returns>
+        public Waypoint AbortDrive(double currentSpeed)
+        {
+            //if current speed is 0, no need to look for closest stop waypoint
+            if(currentSpeed == 0)
+            {
+                //clear path of old values
+                Path?.Clear();
+                DestinationWaypoint = CurrentWaypoint;
+                NextWaypoint = null;
+                //remove old reservation
+                Instance.Controller.PathManager.RemoveReservations(this);
+                //make new reservations
+                Instance.Controller.PathManager.RegisterNextWaypoint(this, Instance.Controller.CurrentTime, Math.Max(_waitUntil, Instance.Controller.CurrentTime), 0.0, CurrentWaypoint, DestinationWaypoint, out _);
+                //set flag to allow calling getTimeNeededToMove
+                _calculateTimeNeededToMove = true;
+                return CurrentWaypoint;
+            }
+
+            //get distance needed to stop
+            double distToStop = Physics.getDistanceToStop(currentSpeed);
+
+            //closest point for stopping exact
+            var xStop = X + distToStop * Math.Cos(_endOrientation);
+            var yStop = Y + distToStop * Math.Sin(_endOrientation);
+
+            //set the closest waypoint on which the robot can actually stop as destination
+            var closestWp = Instance.FindWpFromXY(xStop, yStop);
+            xStop = (XVelocity > Instance.SettingConfig.NumericalTolerance  && xStop > closestWp.X) ? closestWp.X + Instance.layoutConfiguration.HorizontalWaypointDistance : // >
+                    (XVelocity < -Instance.SettingConfig.NumericalTolerance && xStop < closestWp.X) ? closestWp.X - Instance.layoutConfiguration.HorizontalWaypointDistance : // <
+                    closestWp.X;
+            yStop = (YVelocity > Instance.SettingConfig.NumericalTolerance && yStop > closestWp.Y) ? closestWp.Y + Instance.layoutConfiguration.VerticalWaypointDistance : // ^
+                    (YVelocity < -Instance.SettingConfig.NumericalTolerance && yStop < closestWp.Y) ? closestWp.Y - Instance.layoutConfiguration.VerticalWaypointDistance : // v
+                    closestWp.Y;
+            DestinationWaypoint = Instance.FindWpFromXY(xStop, yStop);
+
+            //set the closest waypoint to the current bot position as current waypoint
+            CurrentWaypoint = Instance.FindWpFromXY(X, Y);
+            var waitUntil = Math.Max(_waitUntil, Instance.Controller.CurrentTime);
+
+            // Set flag to allow calling getTimeNeededToMove
+            _calculateTimeNeededToMove = true;
+
+            //register new waypoint and set variables values accordingly
+            if (Instance.Controller.PathManager.RegisterNextWaypoint(this, Instance.Controller.CurrentTime, waitUntil, 0.0, CurrentWaypoint, DestinationWaypoint, out var BlockedAgentIdxs))
+            {
+                //set next waypoint to be new destination waypoint
+                NextWaypoint = DestinationWaypoint;
+
+                //set move times
+                _waitUntil = waitUntil;
+                _rotateDuration = 0; //bot.GetDistance && currentSpeed instead of 0
+                _driveDuration = Physics.getTimeNeededToMove(GetSpeed(), GetDistance(NextWaypoint));
+            }
+            else
+            {
+                //remove reservation from this bot so that other blocked bots can plan their breaking without old reservations
+                Instance.Controller.PathManager.RemoveReservations(this);
+                HashSet<int> blockedAgentIdxs = new HashSet<int>(BlockedAgentIdxs); //to reduce complexity of the next loop
+                foreach (var blockedBot in Instance.MovableStations.Where(ms => blockedAgentIdxs.Contains(ms.ID)))
+                {
+                    var stopWP = blockedBot.AbortDrive(blockedBot.GetSpeed());
+
+                    blockedBot.PrependMoveStates(blockedBot.CurrentWaypoint, stopWP, false, true);
+                    blockedBot.RequestReoptimization = true;
+                }
+
+                //register new waypoint again and set variables values accordingly. Now that all BlockedAgents aborted their drive, we should be able to stop
+                Instance.Controller.PathManager.RegisterNextWaypoint(this, Instance.Controller.CurrentTime, waitUntil, 0.0, CurrentWaypoint, DestinationWaypoint, out var test);
+                //set next waypoint to be new destination waypoint
+                NextWaypoint = DestinationWaypoint;
+                //set move times
+                _waitUntil = waitUntil;
+                _rotateDuration = 0;
+                _driveDuration = Physics.getTimeNeededToMove(GetSpeed(), GetDistance(NextWaypoint)); 
+            }
+
+            //clear path of old values
+            Path.Clear();
+            return DestinationWaypoint;
         }
 
         /// <summary>
@@ -770,44 +1149,88 @@ namespace RAWSimO.Core.Bots
                 StatTotalTimeMoving += delta;
             // Measure queueing time
             if (IsQueueing)
-                StatTotalTimeQueueing += delta;
+                StatTotalTimeQueuing += delta;
+            // Measure rotating time
+            if (!Moving && _startOrientation != _endOrientation &&
+                CurrentBotStateType == BotStateType.Move)
+                StatTotalTimeRotating += delta;
+            // Measure Idle move time (no linear or angle velocity but in Move state)
+            if (!Moving && _startOrientation == _endOrientation && !IsQueueing &&
+                _waitUntil > Instance.Controller.CurrentTime &&
+                CurrentBotStateType == BotStateType.Move)
+                StatTotalTimeIdleMoving += delta;
 
             // Set moving flag bot
             if (XVelocity == 0.0 && YVelocity == 0.0)
-                this.Moving = false;
+                Moving = false;
             else
-                this.Moving = true;
+                Moving = true;
 
             // Set moving flag pod
-            if (this.Pod != null)
-                this.Pod.Moving = this.Moving;
+            if (Pod != null)
+                Pod.Moving = Moving;
 
             // Count distanceTraveled
-            this.StatDistanceTraveled += Math.Sqrt((X - xOld) * (X - xOld) + (Y - yOld) * (Y - yOld));
+            StatDistanceTraveled += Math.Sqrt((X - xOld) * (X - xOld) + (Y - yOld) * (Y - yOld));
 
             // Compute time in previous task
-            this.StatTotalTaskTimes[StatLastTask] += delta;
+            StatTotalTaskTimes[StatLastTask] += delta;
             StatLastTask = CurrentTask != null ? CurrentTask.Type : BotTaskType.None;
 
             // Measure time spent in state
             StatTotalStateTimes[StatLastState] += delta;
             StatLastState = StateQueueCount > 0 ? StateQueuePeek().Type : BotStateType.Rest;
 
-            // Compute time in previous state
-            if (StateQueueCount > 0)
+            bool blocked = Instance.Controller.CurrentTime < _waitUntil || Instance.Controller.CurrentTime < BlockedUntil;
+
+            // when bot starts repeating actions: e.g. moving left-right
+            double time_interval = Instance.Controller.CurrentTime - LastTimeWhenBlocked;
+            if (blocked)
             {
-                // TODO maybe add the time spent in the states in another stat dictionary
-                //string s = _stateQueue.Peek().ToString();
-                //if (this.StatTotalTimes.ContainsKey(s))
-                //    this.StatTotalTimes[s] += delta;
-                //else
-                //    this.StatTotalTimes[s] = delta;
+                LastTimeWhenBlocked = Instance.Controller.CurrentTime;
+                // if it it blocked-unblocked fast enough
+                if (time_interval < SlowestBlockedLoopInterval)
+                {
+                    ++BlockedLoopSwitchesCount; // increment number of block-unblocks
+                    BlockedLoopTime += time_interval; // how much time was spent in block-unblock
+                }
+                else // reset counters if it exited the repetative blocking
+                {
+                    BlockedLoopSwitchesCount = 0;
+                    BlockedLoopTime = 0.0;
+                    BlockedLoopFrequencey = 0;
+                }
+                // if enough switches, calculate the blocking frequency
+                if (BlockedLoopSwitchesCount > 10)
+                    BlockedLoopFrequencey = BlockedLoopSwitchesCount / BlockedLoopTime;
+            }
+            else
+            {
+                if (time_interval > SlowestBlockedLoopInterval) BlockedLoopFrequencey = 0;
             }
         }
-
         #endregion
 
         #region IBotInfo Members
+
+        public override int GetInfoPodLocationID(int approachID)
+        {
+            var task = (MultiPointGatherTask)CurrentTask;
+            Waypoint podLocation = task.PodLocations[task.Locations.FindIndex(l => l.ID == approachID)];
+            return podLocation.ID;
+        }
+
+        public override Tuple<string, int> GetCurrentItemAddressAndMate()
+        {
+            Tuple<string, int> addressAndMate = Instance.Controller.MateScheduler.itemTable[ID].GetFirstAssignment();
+            return addressAndMate;
+        }
+
+
+        public override List<Tuple<string, bool, int, bool>> GetStatus()
+        {
+            return Instance.Controller.MateScheduler.itemTable[ID].GetStatus();
+        }
 
         /// <summary>
         /// x position of the goal for the info panel
@@ -839,14 +1262,10 @@ namespace RAWSimO.Core.Bots
         /// <returns>orientation</returns>
         public override double GetInfoTargetOrientation() { return GetTargetOrientation(); }
         /// <summary>
-        /// The current state the bot is in (for async access).
-        /// </summary>
-        public string _currentInfoStateName = "";
-        /// <summary>
         /// state for the info panel
         /// </summary>
         /// <returns>state</returns>
-        public override string GetInfoState() { return _currentInfoStateName; }
+        public override string GetInfoState() { return CurrentInfoStateName; }
         /// <summary>
         /// Gets the current waypoint that is considered by planning.
         /// </summary>
@@ -880,6 +1299,7 @@ namespace RAWSimO.Core.Bots
         /// The time until the bot is blocked.
         /// </summary>
         /// <returns>The time until the bot is blocked.</returns>
+        public override double GetInfoBlockedLoopFrequency() { return BlockedLoopFrequencey; }
         public override double GetInfoBlockedLeft()
         {
             double currentTime = Instance.Controller.CurrentTime; double waitUntil = _waitUntil; double blockedUntil = BlockedUntil;
@@ -895,738 +1315,6 @@ namespace RAWSimO.Core.Bots
         /// </summary>
         /// <returns><code>true</code> if the robot is within a queue area, <code>false</code> otherwise.</returns>
         public override bool GetInfoIsQueueing() { return IsQueueing; }
-
-        #endregion
-
-        #region States
-
-        #region Move state
-
-        /// <summary>
-        /// The state defining the operation of moving.
-        /// </summary>
-        internal class BotMove : IBotState
-        {
-            /// <summary>
-            /// next node to reach
-            /// </summary>
-            public Waypoint DestinationWaypoint { get; private set; }
-
-            /// <summary>
-            /// constructor
-            /// </summary>
-            /// <param name="w">way point</param>
-            public BotMove(Waypoint w) { DestinationWaypoint = w; }
-
-            /// <summary>
-            /// Indicates whether we just entered the state.
-            /// </summary>
-            private bool _initialized;
-
-            /// <summary>
-            /// Logs an unfinished trip.
-            /// </summary>
-            /// <param name="bot">The bot that is logging the trip.</param>
-            internal void LogUnfinishedTrip(BotNormal bot)
-            {
-                // Manage connectivity statistics
-                if (bot.DestinationWaypoint != null)
-                    bot.DestinationWaypoint.StatLogUnfinishedTrip(bot);
-            }
-
-            /// <summary>
-            /// act
-            /// </summary>
-            /// <param name="self">driver</param>
-            /// <param name="lastTime">The time before this update.</param>
-            /// <param name="currentTime">The current time.</param>
-            public void Act(Bot self, double lastTime, double currentTime)
-            {
-                var bot = self as BotNormal;
-
-                // If it's the first time executing this, log the start time of the trip
-                if (!_initialized)
-                {
-                    bot.Path = new Path();
-                    // Track path statistics
-                    self.StatLastTripStartTime = currentTime;
-                    self.StatTotalStateCounts[Type]++;
-                    self.StatDistanceRequestedOptimal += self.Pod != null ?
-                        Distances.CalculateShortestPathPodSafe(bot.CurrentWaypoint, DestinationWaypoint, bot.Instance) :
-                        Distances.CalculateShortestPath(bot.CurrentWaypoint, DestinationWaypoint, bot.Instance);
-                    // Track last mile statistics
-                    if (DestinationWaypoint.OutputStation != null)
-                    {
-                        if (!bot.IsInStationQueueZone(DestinationWaypoint.OutputStation))
-                            // Start the trip now
-                            bot._queueTripStartTime = bot.Instance.Controller.CurrentTime;
-                        else
-                            // Already at the location - no trip to do
-                            bot._queueTripStartTime = double.NaN;
-                    }
-                    else if (DestinationWaypoint.InputStation != null)
-                    {
-                        if (!bot.IsInStationQueueZone(DestinationWaypoint.InputStation))
-                            // Start the trip now
-                            bot._queueTripStartTime = bot.Instance.Controller.CurrentTime;
-                        else
-                            // Already at the location - no trip to do
-                            bot._queueTripStartTime = double.NaN;
-                    }
-                    else
-                    {
-                        // No station trip - do not track
-                        bot._queueTripStartTime = double.NaN;
-                    }
-
-                    // Mark initialized
-                    _initialized = true;
-                }
-
-                //not while driving
-                if (bot.GetSpeed() > 0)
-                    return;
-
-                //set destination way point
-                bot.DestinationWaypoint = DestinationWaypoint;
-
-                //we are at the destination && RealWorldIntegrationEventDriven
-                if (bot.CurrentWaypoint == bot.DestinationWaypoint)
-                {
-                    //#RealWorldIntegration.start
-                    if (bot.Instance.SettingConfig.RealWorldIntegrationEventDriven)
-                    {
-                        lock (bot)
-                        {
-                            if (!bot._eventReachedNextWaypoint)
-                            {
-                                // Logging info message
-                                bot.Instance.LogInfo("Setting Bot" + bot.ID + " to sleep");
-
-                                bot.BlockedUntil = bot._waitUntil = double.PositiveInfinity;
-                                return;
-                            }
-                        }
-                    }
-                    //#RealWorldIntegration.end
-
-                    // Manage connectivity statistics
-                    if (bot.DestinationWaypoint != null)
-                        bot.CurrentWaypoint.StatReachedDestination(bot);
-
-                    // Remove this task
-                    bot.NextWaypoint = null;
-                    bot.DestinationWaypoint = null;
-                    bot.DequeueState(lastTime, currentTime);
-                    return;
-                }
-
-                // Only mark the move state if we weren't already at the destination waypoint
-                bot._lastExteriorState = Type;
-
-                //the bot has already something to do
-                if (bot.NextWaypoint != null)
-                    return;
-
-                //Has the bot a path?
-                if (bot.Path == null || bot.Path.Count == 0)
-                {
-                    bot.RequestReoptimization = true;
-                    return;
-                }
-
-                //#RealWorldIntegration.start
-                if (bot.Instance.SettingConfig.RealWorldIntegrationEventDriven)
-                {
-                    lock (bot)
-                    {
-                        if (bot.Instance.Controller.PathManager.GetWaypointByNodeId(bot.Path.NextAction.Node) == bot.CurrentWaypoint && !bot._eventReachedNextWaypoint)
-                        {
-                            // Logging info message
-                            bot.Instance.LogInfo("Setting Bot" + bot.ID + " to sleep");
-
-                            bot.BlockedUntil = bot._waitUntil = double.PositiveInfinity;
-                            return;
-                        }
-                    }
-                }
-                //#RealWorldIntegration.end
-
-                //Bot reached the next way point?
-                if (bot.Instance.Controller.PathManager.GetWaypointByNodeId(bot.Path.NextAction.Node) != bot.CurrentWaypoint)
-                {
-                    // --> Not reached yet
-                    bool successfulRegistration = bot.setNextWaypoint(bot.Instance.Controller.PathManager.GetWaypointByNodeId(bot.Path.NextAction.Node), currentTime);
-                    if (successfulRegistration)
-                        bot._eventReachedNextWaypoint = false;
-                    else
-                        bot._waitUntil = currentTime + 1;
-                }
-                else
-                {
-                    // --> Bot reached the next way point
-                    // See whether turning to prepare for next move is necessary
-                    if (bot.Path.NextAction == bot.Path.LastAction && bot.Path.NextNodeToPrepareFor >= 0)
-                    {
-                        // Calculate turn times
-                        bot._startOrientation = bot.Orientation;
-                        Waypoint turnTowards = bot.Instance.Controller.PathManager.GetWaypointByNodeId(bot.Path.NextNodeToPrepareFor);
-                        bot._endOrientation = GetOrientation(bot.X, bot.Y, turnTowards.X, turnTowards.Y);
-                        double rotateDuration = bot.Physics.getTimeNeededToTurn(bot._startOrientation, bot._endOrientation);
-                        // Forget about the node
-                        bot.Path.NextNodeToPrepareFor = -1;
-                        // See whether we need to turn at all
-                        if (rotateDuration > 0)
-                        {
-                            // Proceed with turn then come back here to get rid of the action
-                            bot._waitUntil = Math.Max(bot._waitUntil, currentTime);
-                            bot._rotateDuration = rotateDuration;
-                            return;
-                        }
-                    }
-
-                    // Set wait until time
-                    if (bot.Path.NextAction.StopAtNode && bot.Path.NextAction.WaitTimeAfterStop > 0)
-                        bot._waitUntil = currentTime + bot.Path.NextAction.WaitTimeAfterStop;
-
-                    //pop the node
-                    bot.Path.RemoveFirstAction();
-
-                    //skip all non-stopping nodes
-                    while (bot.Path.Count > 0 && bot.Path.NextAction.StopAtNode == false)
-                        bot.Path.RemoveFirstAction();
-
-                    if (bot.Path == null || bot.Path.Count == 0)
-                    {
-                        if (bot._waitUntil <= currentTime)
-                            bot.RequestReoptimization = true;
-                        return;
-                    }
-
-                    //set next destination
-                    bool successfulRegistration = bot.setNextWaypoint(bot.Instance.Controller.PathManager.GetWaypointByNodeId(bot.Path.NextAction.Node), currentTime);
-                    if (successfulRegistration)
-                        bot._eventReachedNextWaypoint = false;
-                    else
-                        bot._waitUntil = currentTime + 1;
-                }
-            }
-
-            /// <summary>
-            /// Notifies the move state, that a collision occurred.
-            /// </summary>
-            /// <param name="bot">The bot.</param>
-            /// <param name="currentTime">The current simulation time.</param>
-            internal void NotifyCollision(BotNormal bot, double currentTime)
-            {
-                if (bot.Path == null)
-                    bot.Path = new Path();
-
-                //drive back to passed way point
-                bot.setNextWaypoint(bot.CurrentWaypoint, currentTime);
-
-                bot.Path.AddFirst(bot.Instance.Controller.PathManager.GetNodeIdByWaypoint(bot.CurrentWaypoint), true, 0);
-            }
-
-            /// <summary>
-            /// Returns the current way point this bot wants to drive to
-            /// </summary>
-            public Waypoint getDestinationWaypoint()
-            {
-                return DestinationWaypoint;
-            }
-
-            /// <summary>
-            /// state name
-            /// </summary>
-            /// <returns>name</returns>
-            public override string ToString() { return "Move"; }
-
-            /// <summary>
-            /// State type.
-            /// </summary>
-            public BotStateType Type { get { return BotStateType.Move; } }
-
-        }
-        #endregion
-
-        #region Pickup and Set down states
-
-        /// <summary>
-        /// The state defining the operation of picking up a pod at the current location.
-        /// </summary>
-        internal class BotPickupPod : IBotState
-        {
-            private Pod _pod;
-            private Waypoint _waypoint;
-            private bool _initialized = false;
-            private bool _executed = false;
-            public BotPickupPod(Pod b) { _pod = b; _waypoint = _pod.Waypoint; }
-            public Waypoint DestinationWaypoint { get { return _waypoint; } }
-            public void Act(Bot self, double lastTime, double currentTime)
-            {
-                var bot = self as BotNormal;
-
-                // Remember the last state we were in
-                bot._lastExteriorState = Type;
-
-                // Initialize
-                if (!_initialized) { self.StatTotalStateCounts[Type]++; _initialized = true; }
-
-                // Dequeue the state as soon as it is finished
-                if (_executed)
-                {
-                    bot.DequeueState(lastTime, currentTime);
-                    return;
-                }
-                // Act based on whether pod was picked up
-                if (bot.PickupPod(_pod, currentTime))
-                {
-                    _executed = true;
-                    bot.WaitUntil(bot.BlockedUntil);
-                    bot.Instance.WaypointGraph.PodPickup(_pod);
-                    bot.Instance.Controller.BotManager.PodPickedUp(bot, _pod, _waypoint);
-
-                    //#RealWorldIntegraton.Start
-                    //Trigger comes from outside => stay blocked
-                    if (bot.Instance.SettingConfig.RealWorldIntegrationEventDriven)
-                        bot.BlockedUntil = bot._waitUntil = double.PositiveInfinity;
-                    //#RealWorldIntegraton.End
-                }
-                else
-                {
-                    // Failed to pick up pod
-                    bot.StateQueueClear();
-                    bot.Instance.Controller.BotManager.TaskAborted(bot, bot.CurrentTask);
-                }
-            }
-
-            /// <summary>
-            /// state name
-            /// </summary>
-            /// <returns>name</returns>
-            public override string ToString() { return "PickupPod"; }
-
-            /// <summary>
-            /// State type.
-            /// </summary>
-            public BotStateType Type { get { return BotStateType.PickupPod; } }
-        }
-
-        /// <summary>
-        /// The state defining the operation of setting down a pod at the current location.
-        /// </summary>
-        internal class BotSetdownPod : IBotState
-        {
-            private Waypoint _waypoint;
-            private bool _initialized = false;
-            private bool _executed = false;
-            public BotSetdownPod(Waypoint w) { _waypoint = w; }
-            public Waypoint DestinationWaypoint { get { return _waypoint; } }
-            public void Act(Bot self, double lastTime, double currentTime)
-            {
-                var bot = self as BotNormal;
-
-                // Remember the last state we were in
-                bot._lastExteriorState = Type;
-
-                // Initialize
-                if (!_initialized) { self.StatTotalStateCounts[Type]++; _initialized = true; }
-
-                // Dequeue the state as soon as it is finished
-                if (_executed)
-                {
-                    bot.DequeueState(lastTime, currentTime);
-                    return;
-                }
-
-                //remember Pod
-                Pod pod = bot.Pod;
-
-                // Act based on whether pod was set down
-                if (bot.SetdownPod(currentTime))
-                {
-                    _executed = true;
-                    bot.WaitUntil(bot.BlockedUntil);
-                    bot.Instance.WaypointGraph.PodSetdown(pod, _waypoint);
-                    bot.Instance.Controller.BotManager.PodSetDown(bot, pod, _waypoint);
-
-                    //#RealWorldIntegraton.Start
-                    //Trigger comes from outside => stay blocked
-                    if (bot.Instance.SettingConfig.RealWorldIntegrationEventDriven)
-                        bot.BlockedUntil = bot._waitUntil = double.PositiveInfinity;
-                    //#RealWorldIntegraton.End
-                }
-                else
-                {
-                    // Failed to set down pod
-                    bot.StateQueueClear();
-                    bot.Instance.Controller.BotManager.TaskAborted(bot, bot.CurrentTask);
-                }
-            }
-
-            /// <summary>
-            /// state name
-            /// </summary>
-            /// <returns>name</returns>
-            public override string ToString() { return "SetdownPod"; }
-
-            /// <summary>
-            /// State type.
-            /// </summary>
-            public BotStateType Type { get { return BotStateType.SetdownPod; } }
-        }
-
-        #endregion
-
-        #region Get and Put states
-
-        /// <summary>
-        /// The state defining the operation of storing an item-bundle in the pod at an input-station.
-        /// </summary>
-        internal class BotGetItems : IBotState
-        {
-            private InsertTask _storeTask;
-            private Waypoint _waypoint;
-            private bool _initialized = false;
-            private bool alreadyRequested = false;
-            public BotGetItems(InsertTask storeTask) { _storeTask = storeTask; _waypoint = _storeTask.InputStation.Waypoint; }
-            public Waypoint DestinationWaypoint { get { return _waypoint; } }
-            public void Act(Bot self, double lastTime, double currentTime)
-            {
-                var bot = self as BotNormal;
-
-                // Initialize
-                if (!_initialized) { self.StatTotalStateCounts[Type]++; _initialized = true; }
-
-                //#RealWorldIntegration.start
-                if (bot.Instance.SettingConfig.RealWorldIntegrationCommandOutput && bot._lastExteriorState != Type)
-                {
-                    // Log the pickup command
-                    var sb = new StringBuilder();
-                    sb.Append("#RealWorldIntegration => Bot ").Append(bot.ID).Append(" Get");
-                    bot.Instance.SettingConfig.LogAction(sb.ToString());
-                    // Issue the pickup command
-                    bot.Instance.RemoteController.RobotSubmitGetItemCommand(bot.ID);
-                }
-                //#RealWorldIntegration.end
-
-                // If this is the first put action at a station, register - we need to notify it
-                if (bot._lastExteriorState != Type)
-                    _storeTask.InputStation.RegisterBot(bot);
-
-                // Remember the last state we were in
-                bot._lastExteriorState = Type;
-
-                // If it's the first time, request the bundles
-                if (!alreadyRequested)
-                {
-                    _storeTask.InputStation.RequestBundle(bot, _storeTask.Requests.First());
-                    alreadyRequested = true;
-                }
-
-                if (bot.Pod == null)
-                {
-                    // Something wrong happened... don't have a pod!
-                    bot.Instance.Controller.BotManager.TaskAborted(bot, bot.CurrentTask);
-                    bot.DequeueState(lastTime, currentTime);
-                    return;
-                }
-
-                // See if bundle has been deposited in the pod
-                switch (_storeTask.Requests.First().State)
-                {
-                    case Management.RequestState.Unfinished: /* Ignore */ break;
-                    case Management.RequestState.Aborted: // Request was aborted for some reason - give it back to the manager for re-insertion
-                        {
-                            // Remove the request that was just aborted
-                            _storeTask.FirstAborted();
-                            // See whether there are more bundles to store
-                            if (_storeTask.Requests.Any())
-                            {
-                                // Store another one
-                                alreadyRequested = false;
-                            }
-                            else
-                            {
-                                // We are done here
-                                bot.DequeueState(lastTime, currentTime);
-                                return;
-                            }
-                        }
-                        break;
-                    case Management.RequestState.Finished: // Request was finished - we can go on
-                        {
-                            // Remove the request that was just completed
-                            _storeTask.FirstStored();
-                            // See whether there are more bundles to store
-                            if (_storeTask.Requests.Any())
-                            {
-                                // Store another one
-                                alreadyRequested = false;
-                            }
-                            else
-                            {
-                                // We are done here
-                                bot.DequeueState(lastTime, currentTime);
-                                return;
-                            }
-                        }
-                        break;
-                    default: throw new ArgumentException("Unknown request state: " + _storeTask.Requests.First().State);
-                }
-            }
-
-            /// <summary>
-            /// state name
-            /// </summary>
-            /// <returns>name</returns>
-            public override string ToString() { return "GetItems"; }
-
-            /// <summary>
-            /// State type.
-            /// </summary>
-            public BotStateType Type { get { return BotStateType.GetItems; } }
-        }
-
-        /// <summary>
-        /// The state defining the operation of picking an item from the pod at an output-station.
-        /// </summary>
-        internal class BotPutItems : IBotState
-        {
-            ExtractTask _extractTask;
-            Waypoint _waypoint;
-            private bool _initialized = false;
-            bool alreadyRequested = false;
-            public BotPutItems(ExtractTask extractTask)
-            { _extractTask = extractTask; _waypoint = extractTask.OutputStation.Waypoint; }
-            public Waypoint DestinationWaypoint { get { return _waypoint; } }
-            public void Act(Bot self, double lastTime, double currentTime)
-            {
-                var bot = self as BotNormal;
-
-                // Initialize
-                if (!_initialized) { self.StatTotalStateCounts[Type]++; _initialized = true; }
-
-                //#RealWorldIntegration.start
-                if (bot.Instance.SettingConfig.RealWorldIntegrationCommandOutput && bot._lastExteriorState != Type)
-                {
-                    // Log the pickup command
-                    var sb = new StringBuilder();
-                    sb.Append("#RealWorldIntegration => Bot ").Append(bot.ID).Append(" Put");
-                    bot.Instance.SettingConfig.LogAction(sb.ToString());
-                    // Issue the pickup command
-                    bot.Instance.RemoteController.RobotSubmitPutItemCommand(bot.ID);
-                }
-                //#RealWorldIntegration.end
-
-                // If this is the first put action at a station, register - we need to notify it
-                if (bot._lastExteriorState != Type)
-                    _extractTask.OutputStation.RegisterBot(bot);
-
-                // Remember the last state we were in
-                bot._lastExteriorState = Type;
-
-                // If it's the first time, request the items be taken
-                if (!alreadyRequested)
-                {
-                    _extractTask.OutputStation.RequestItemTake(bot, _extractTask.Requests.First());
-                    alreadyRequested = true;
-                }
-
-                if (bot.Pod == null)
-                {
-                    // Something wrong happened... don't have a pod!
-                    bot.Instance.Controller.BotManager.TaskAborted(bot, bot.CurrentTask);
-                    bot.StateQueueClear();
-                    return;
-                }
-
-                // See if item has been picked from the pod
-                switch (_extractTask.Requests.First().State)
-                {
-                    case Management.RequestState.Unfinished: /* Ignore */ break;
-                    case Management.RequestState.Aborted: // Request was aborted for some reason - give it back to the manager for re-insertion
-                        {
-                            // Remove the request that was just aborted
-                            _extractTask.FirstAborted();
-                            // See whether there are more items to pick
-                            if (_extractTask.Requests.Any())
-                            {
-                                // Pick another one
-                                alreadyRequested = false;
-                            }
-                            else
-                            {
-                                // We are done here
-                                bot.DequeueState(lastTime, currentTime);
-                                return;
-                            }
-                        }
-                        break;
-                    case Management.RequestState.Finished: // Request was finished - we can go on
-                        {
-                            // Remove the request that was just completed
-                            _extractTask.FirstPicked();
-                            // See whether there are more items to pick
-                            if (_extractTask.Requests.Any())
-                            {
-                                // Pick another one
-                                alreadyRequested = false;
-                            }
-                            else
-                            {
-                                // We are done here
-                                bot.DequeueState(lastTime, currentTime);
-                                return;
-                            }
-                        }
-                        break;
-                    default: throw new ArgumentException("Unknown request state: " + _extractTask.Requests.First().State);
-                }
-            }
-
-            /// <summary>
-            /// state name
-            /// </summary>
-            /// <returns>name</returns>
-            public override string ToString() { return "PutItems"; }
-
-            /// <summary>
-            /// State type.
-            /// </summary>
-            public BotStateType Type { get { return BotStateType.PutItems; } }
-        }
-
-        #endregion
-
-        #region Use elevator state
-
-        /// <summary>
-        /// State: Bot uses an elevator to get to a different tier
-        /// </summary>
-        internal class UseElevator : IBotState
-        {
-            private Elevator _elevator;
-            private Waypoint _waypointFrom;
-            private Waypoint _waypointTo;
-            private bool _initialized = false;
-            private bool inUse;
-            private double travelUntil;
-            public Waypoint DestinationWaypoint { get { return _waypointTo; } }
-            public UseElevator(Elevator elevator, Waypoint waypointFrom, Waypoint waypointTo) { _elevator = elevator; _waypointFrom = waypointFrom; _waypointTo = waypointTo; inUse = false; }
-            public void Act(Bot self, double lastTime, double currentTime)
-            {
-                var bot = self as BotNormal;
-
-                // Initialize
-                if (!_initialized) { self.StatTotalStateCounts[Type]++; _initialized = true; }
-
-                // Remember the last state we were in
-                bot._lastExteriorState = Type;
-
-                // Check if i already using the elevator
-                if (!inUse)
-                {
-                    //consistency
-                    if (!_elevator.ConnectedPoints.Contains(_waypointFrom) || !_elevator.ConnectedPoints.Contains(_waypointTo))
-                        throw new NotSupportedException("Way point is not managed by Elevator!");
-
-                    inUse = true;
-                    travelUntil = currentTime + _elevator.GetTiming(_waypointFrom, _waypointTo);
-                    bot._waitUntil = travelUntil;
-                }
-
-
-                if (currentTime >= travelUntil)
-                {
-                    //do the transportation
-                    _elevator.Transport(bot, _waypointFrom, _waypointTo);
-                    bot.CurrentWaypoint = _waypointTo;
-                    bot.DequeueState(lastTime, currentTime);
-                    return;
-                }
-
-            }
-
-            /// <summary>
-            /// state name
-            /// </summary>
-            /// <returns>name</returns>
-            public override string ToString() { return "UseElevator"; }
-
-            /// <summary>
-            /// State type.
-            /// </summary>
-            public BotStateType Type { get { return BotStateType.UseElevator; } }
-        }
-        #endregion
-
-        #region Rest state
-
-        internal class BotRest : IBotState
-        {
-            // TODO make rest time randomized and parameterized
-            public const double DEFAULT_REST_TIME = 5;
-
-            private Waypoint _waypoint;
-            private double _timeSpan;
-            private bool _initialized = false;
-            private bool alreadyRested = false;
-            public BotRest(Waypoint waypoint, double timeSpan) { _waypoint = waypoint; _timeSpan = timeSpan; }
-            public Waypoint DestinationWaypoint { get { return _waypoint; } }
-
-            public void Act(Bot self, double lastTime, double currentTime)
-            {
-                var bot = self as BotNormal;
-
-                // Initialize
-                if (!_initialized) { self.StatTotalStateCounts[Type]++; _initialized = true; }
-
-                //#RealWorldIntegration.start
-                if (bot.Instance.SettingConfig.RealWorldIntegrationCommandOutput && bot._lastExteriorState != Type)
-                {
-                    // Log the pickup command
-                    var sb = new StringBuilder();
-                    sb.Append("#RealWorldIntegration => Bot ").Append(bot.ID).Append(" Rest");
-                    bot.Instance.SettingConfig.LogAction(sb.ToString());
-                    // Issue the pickup command
-                    bot.Instance.RemoteController.RobotSubmitRestCommand(bot.ID);
-                }
-                //#RealWorldIntegration.end
-
-                // Remember the last state we were in
-                bot._lastExteriorState = Type;
-
-                // Randomly rest or exit resting
-                if (!alreadyRested)
-                {
-                    // Rest for a predefined period
-                    bot.BlockedUntil = currentTime + _timeSpan;
-                    bot.WaitUntil(bot.BlockedUntil);
-                    alreadyRested = true;
-                    return;
-                }
-                else
-                {
-                    // exit the resting
-                    bot.DequeueState(lastTime, currentTime);
-                }
-            }
-
-            /// <summary>
-            /// state name
-            /// </summary>
-            /// <returns>name</returns>
-            public override string ToString() { return "Rest"; }
-
-            /// <summary>
-            /// State type.
-            /// </summary>
-            public BotStateType Type { get { return BotStateType.Rest; } }
-
-        }
-        #endregion
 
         #endregion
 
@@ -1682,7 +1370,14 @@ namespace RAWSimO.Core.Bots
             //stop blocking
             BlockedUntil = _waitUntil = 0;
         }
+
+        /// <summary>
+        /// called when AbortingTask is assigned
+        /// </summary>
+        public override void OnAbortingTaskAsigned()
+        {
+            throw new NotImplementedException();
+        }
         #endregion
     }
-
 }

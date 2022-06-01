@@ -8,6 +8,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using RAWSimO.Toolbox;
 
 namespace RAWSimO.MultiAgentPathFinding.Methods
 {
@@ -101,16 +102,53 @@ namespace RAWSimO.MultiAgentPathFinding.Methods
             if (UseDeadlockHandler)
                 _deadlockHandler = new DeadlockHandler(graph, seed);
         }
+        /// <summary>
+        /// Gets <see cref="ReverseResumableAStar"/> for a given <paramref name="agent"/>
+        /// </summary>
+        /// <param name="agent"><see cref="Agent"/> for which A* will be found</param>
+        /// <param name="findNew"><see cref="bool"/> indicating if new A* path will be created</param>
+        /// <returns><see cref="ReverseResumableAStar"/> for a given <paramref name="agent"/></returns>
+        public ReverseResumableAStar GetRRAstar(Agent agent, bool findNew)
+        {
+            return findNew || _rraStar[agent.ID] == null
+                ? new ReverseResumableAStar(Graph, agent, agent.Physics, agent.DestinationNode, new HashSet<int>())
+                : _rraStar[agent.ID];
+        }
+        /// <summary>
+        /// List of all the bots that implement <see cref="IMovableStation"/> interface
+        /// </summary>
+        List<IMovableStation> Bots { get; set; }
+        /// <summary>
+        /// List of all the agents currently used in the FAR method
+        /// </summary>
+        List<Agent> Agents { get; set; }
+        /// <summary>
+        /// Find the path for all the agents.
+        /// </summary>
+        /// <param name="currentTime">The current time.</param>
+        /// <param name="agents">agents</param>
+        /// <param name="bots">bots that implement <see cref="IMovableStation"/> interface</param>
+        public void FindPaths(double currentTime, List<Agent> agents, List<IMovableStation> bots)
+        {
+            Bots = bots;
+            Agents = agents; 
+            FindPaths(currentTime, agents);
+        }
+        /// <summary>
+        /// Notifies the <paramref name="agent"/> that path has changed
+        /// </summary>
+        /// <param name="agent"><see cref="Agent"/> whose path has changed</param>
+        private void NotifyPathChanged(Agent agent)
+        {
+            if (!Agents.Contains(agent)) return;
+            Bots[Agents.IndexOf(agent)].NotifyPathChanged();
+        }
 
         /// <summary>
         /// Find the path for all the agents.
         /// </summary>
         /// <param name="currentTime">The current time.</param>
         /// <param name="agents">agents</param>
-        /// <param name="obstacleNodes">The way points of the obstacles.</param>
-        /// <param name="lockedNodes">The locked nodes.</param>
-        /// <param name="nextReoptimization">The next re-optimization time.</param>
-        /// <param name="runtimeLimit">The runtime limit.</param>
         public override void FindPaths(double currentTime, List<Agent> agents)
         {
             Stopwatch.Restart();
@@ -211,7 +249,13 @@ namespace RAWSimO.MultiAgentPathFinding.Methods
 
                 //Is a search processing necessary
                 if (!found)
+                {
                     found = rraStar.Search(agent.NextNode);
+                    if(found)
+                        NotifyPathChanged(agent);
+                    
+                }
+                    
 
                 //the search ended with no result => just wait a moment
                 if (!found)
@@ -338,7 +382,7 @@ namespace RAWSimO.MultiAgentPathFinding.Methods
                             //try to find a free hop
                             var foundBreakingManeuverEdge = false;
                             var possibleEdges = new List<Edge>(Graph.Edges[agent.NextNode]);
-                            shuffle<Edge>(possibleEdges, Randomizer);
+                            possibleEdges.Shuffle();
                             foreach (var edge in possibleEdges.Where(e => !e.ToNodeInfo.IsLocked && (agent.CanGoThroughObstacles || !e.ToNodeInfo.IsObstacle) && !_es2evadedFrom[agent.ID].Contains(e.To)))
                             {
                                 //create intervals
@@ -401,7 +445,7 @@ namespace RAWSimO.MultiAgentPathFinding.Methods
         private List<int> _getNextHopNodes(double currentTime, Agent agent, out int reservationOwnerAgentId, out int reservationOwnerNodeId)
         {
 
-            var nextHopNodes = _rraStar[agent.ID].NextsNodesUntilTurn(agent.NextNode);
+            var nextHopNodes = _rraStar[agent.ID].NodesUntilNextTurn(agent.NextNode);
 
             var startReservation = currentTime;
             reservationOwnerNodeId = -1;
@@ -449,27 +493,10 @@ namespace RAWSimO.MultiAgentPathFinding.Methods
             agent.Path.AddFirst(agent.NextNode, true, LengthOfAWaitStep);
 
             //add blocking next node
-            _reservationTable.Add(agent.NextNode, agent.ArrivalTimeAtNextNode, double.PositiveInfinity, agent.ID);
+            _reservationTable.Add(agent.NextNode, agent.ArrivalTimeAtNextNode, agent.ArrivalTimeAtNextNode + LengthOfAWaitStep, agent.ID);
 
             _waitTime[agent.ID] = currentTime + LengthOfAWaitStep;
 
-        }
-        /// <summary>
-        /// Shuffles the specified list.
-        /// </summary>
-        /// <typeparam name="T"></typeparam>
-        /// <param name="list">The list.</param>
-        public static void shuffle<T>(IList<T> list, Random rnd)
-        {
-            int n = list.Count;
-            while (n > 1)
-            {
-                int k = (rnd.Next(0, n) % n);
-                n--;
-                T value = list[k];
-                list[k] = list[n];
-                list[n] = value;
-            }
         }
 
         /// <summary>

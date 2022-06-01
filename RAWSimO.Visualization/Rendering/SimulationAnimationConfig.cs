@@ -27,5 +27,9 @@ namespace RAWSimO.Visualization.Rendering
         /// Specifies whether to draw the path marker.
         /// </summary>
         public bool DrawPath;
+        /// <summary>
+        /// Specifies whether to draw wave
+        /// </summary>
+        public bool DrawWave = true;
     }
 }

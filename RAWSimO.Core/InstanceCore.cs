@@ -37,6 +37,7 @@ namespace RAWSimO.Core
             ElementMetaInfoTracker = new ElementMetaInfoTracker(this);
             BotCrashHandler = new BotCrashHandler(this);
             SharedControlElements = new SharedControlElementsContainer(this);
+            CurrentInstance = this;
         }
 
         #endregion
@@ -44,9 +45,25 @@ namespace RAWSimO.Core
         #region Core
 
         /// <summary>
+        /// Reference to the current instance.
+        /// </summary>
+        public static Instance CurrentInstance { get; private set; }
+
+        /// <summary>
         /// The name of the instance.
         /// </summary>
         public string Name;
+
+        /// <summary>
+        /// Date and time when this instance was created.
+        /// </summary>
+        public DateTime CreatedAt { get; } = DateTime.Now;
+
+        /// <summary>
+        /// Default string representation of date and time when this instance was created.
+        /// </summary>
+        public string CreatedAtString { get { return CreatedAt.ToString("yyyy-MM-dd-HH-mm-ss"); } }
+
         /// <summary>
         /// The configuration to use while executing the instance.
         /// </summary>
@@ -67,6 +84,8 @@ namespace RAWSimO.Core
         /// A list of given orders that will be passed to the item manager.
         /// </summary>
         public OrderList OrderList;
+
+        public Dictionary<string, Dictionary<int, int>> OrderLocationInfo;
         /// <summary>
         /// The compound declaring all physical attributes of the instance.
         /// </summary>
@@ -75,6 +94,14 @@ namespace RAWSimO.Core
         /// All robots of this instance.
         /// </summary>
         public List<Bot> Bots = new List<Bot>();
+        /// <summary>
+        /// All movable stations of this instance.
+        /// </summary>
+        public List<MovableStation> MovableStations = new List<MovableStation>();
+        /// <summary>
+        /// All MateBots of this instace
+        /// </summary>
+        public List<MateBot> MateBots = new List<MateBot>();
         /// <summary>
         /// All pods of this instance.
         /// </summary>
@@ -88,6 +115,14 @@ namespace RAWSimO.Core
         /// </summary>
         public List<InputStation> InputStations = new List<InputStation>();
         /// <summary>
+        /// All input pallet stands of this instance
+        /// </summary>
+        public List<InputPalletStand> InputPalletStands = new List<InputPalletStand>();
+        /// <summary>
+        /// All output pallet stands of this instance
+        /// </summary>
+        public List<OutputPalletStand> OutputPalletStands = new List<OutputPalletStand>();
+        /// <summary>
         /// All output-stations of this instance.
         /// </summary>
         public List<OutputStation> OutputStations = new List<OutputStation>();
@@ -99,7 +134,217 @@ namespace RAWSimO.Core
         /// All semaphors of this instance.
         /// </summary>
         public List<QueueSemaphore> Semaphores = new List<QueueSemaphore>();
+        /// <summary>
+        /// Set of all available bot parking space 
+        /// </summary>
+        public HashSet<Waypoint> ParkingLot = new HashSet<Waypoint>();
+        /// <summary>
+        /// String array containing map layout and direction costs
+        /// </summary>
+        public List<List<string>> MapArray = new List<List<string>>();
+        /// <summary>
+        /// String array containing item addresses
+        /// </summary>
+        public List<List<string>> ItemAddressArray = new List<List<string>>();
+        /// <summary>
+        /// Contains visiting order for all picking locations (pods/items)
+        /// </summary>
+        public List<List<string>> ItemAddressSortOrder = new List<List<string>>();
+        /// <summary>
+        /// Dictionary mapping address of the picking location/item to the sort order
+        /// </summary>
+        public Dictionary<string, int> addressToSortOrder = new Dictionary<string, int>();
+        /// <summary>
+        /// Int array containing mateBot zones where they operate
+        /// </summary>
+        public List<List<string>> ZoneLocationsOnMap = new List<List<string>>();
+        /// <summary>
+        /// Number of storage pods
+        /// </summary>
+        public int PodCount { get; set; }
+        /// <summary>
+        /// Number of waypoint columns in the map
+        /// </summary>
+        public int MapColumnCount { get; set; }
+        /// <summary>
+        /// Number of waypoint rows in the map
+        /// </summary>
+        public int MapRowCount { get; set; }
+        /// <summary>
+        /// Horizontal length of the map layout
+        /// </summary>
+        public double MapHorizontalLength { get; set; }
+        /// <summary>
+        /// Vertical length of the map layout
+        /// </summary>
+        public double MapVerticalLength { get; set; }
+        /// <summary>
+        /// Number of input pallet stands
+        /// </summary>
+        public int NInputPalletStands { get; set; }
+        /// <summary>
+        /// Number of output pallet stands
+        /// </summary>
+        public int NOutputPalletStands { get; set; }
+        /// <summary>
+        /// Number of waypoints for Input pallet stand queue/buffer
+        /// </summary>
+        public int InputQueueSize { get; set; }
+        /// <summary>
+        /// Number of waypoints for Output pallet stand queue/buffer
+        /// </summary>
+        public int OutputQueueSize { get; set; }
+        /// <summary>
+        /// All distinct x values of a Waypoint, sorted
+        /// </summary>
+        public List<double> WaypointXs { get; set; }
+        /// <summary>
+        /// All distinct y values of a Waypoint, sorted
+        /// </summary>
+        public List<double> WaypointYs { get; set; }
+        /// <summary>
+        /// Dictinary which holds all waypoints as values and x,y as keys
+        /// </summary>
+        public Dictionary<double, Dictionary<double, Waypoint>> Waypoints_dict { get; set; } = new Dictionary<double, Dictionary<double, Waypoint>>();
+        
+        /// <summary>
+        /// Returns waypoint for a given address.
+        /// </summary>
+        /// <param name="address"></param>
+        /// <returns></returns>
+        public Waypoint GetWaypointFromAddress(string address)
+        {
+            var pod = Pods.FirstOrDefault(a => a.Address.Equals(address));
+            if (pod == null) throw new Exception("Address " + address + " doesn't exists!");
+            return pod.Waypoint;
+        }
+       
+        /// <summary>
+        /// Returns address for a given waypoint.
+        /// </summary>
+        /// <param name="waypoint"></param>
+        /// <returns></returns>
+        public string GetAddressFromWayoint(Waypoint waypoint)
+        {
+            var pod = Pods.FirstOrDefault(a => a.Waypoint == waypoint);
+            if (pod == null) throw new Exception("Waypoint " + waypoint + " doesn't exists!");
+            return pod.Address;
+        }
 
+        public double GetHueForSector(char S)
+        {
+            return (double)(S - 'A') / ('K' - 'A') * 360;
+        }
+
+        /// <summary>
+        /// Finds adequate drop waypoint from address
+        /// </summary>
+        /// <param name="address"></param>
+        /// <returns></returns>
+        public Waypoint GetDropWaypointFromAddress(string address)
+        {
+            if (OutputPalletStands.Count > 0 )
+                return OutputPalletStands[lastDropSite++ % OutputPalletStands.Count].Waypoint;
+            return null;
+        }
+        /// <summary>
+        /// Finds element of the <see cref="List{T}"/> which is closest to destination
+        /// </summary>
+        /// <typeparam name="T">Class which is inherited from <see cref="Bot"/></typeparam>
+        /// <typeparam name="S">Class which is inherited from <see cref="Circle"/></typeparam>
+        /// <param name="list">List of elements which will be searched</param>
+        /// <param name="destination"></param>
+        /// <returns>Closest element of the list</returns>
+        public T findClosestBot<T, S>(List<T> list, S destination) where T : Bot
+                                                                   where S : Circle
+        {
+            T closest = null;
+            double minDistance = double.MaxValue;
+            foreach (var bot in list)
+            {
+                double distance = bot.CurrentWaypoint.GetDistance(destination);
+                if (distance < minDistance)
+                {
+                    minDistance = distance;
+                    closest = bot;
+                }
+            }
+            return closest;
+        }
+        /// <summary>
+        /// Deletes item duplicates and adds up the time 
+        /// </summary>
+        /// <param name="allAddresses"></param>
+        /// <param name="allTimes"></param>
+        /// <param name="addresses"></param>
+        /// <param name="times"></param>
+        internal void MergeTheSameItems(List<string> allAddresses, List<double> allTimes, List<string> addresses, List<double> times, List<int> allPalletIDs, List<int> palletIDs)
+        {
+            for (int i = 0; i < allAddresses.Count; i++)
+            {
+                int index = -1;
+                index = addresses.FindIndex(a => a == allAddresses[i]);
+                if (index != -1)
+                {
+                    times[index] += allTimes[i];
+                }
+                else
+                {
+                    addresses.Add(allAddresses[i]);
+                    times.Add(allTimes[i]);
+                    palletIDs.Add(allPalletIDs[i]);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Find waypoint in a list which is closest the focusWp
+        /// </summary>
+        /// <typeparam name="T">Location type derived from <see cref="Waypoint"/></typeparam>
+        /// <param name="container">List of waypoints from which the closest will be found</param>
+        /// <param name="focusWp">waypoint for which location is being searched</param>
+        /// <returns>Location in <paramref name="container"/> which is closest to <paramref name="focusWp"/></returns>
+        public T findClosestLocation<T>(IEnumerable<T> container, T focusWp) where T : Waypoint
+        {
+            T closest = null;
+            double minDistance = double.MaxValue;
+            foreach (var wp in container)
+            {
+                double distance = focusWp.GetDistance(wp);
+                if (distance < minDistance)
+                {
+                    minDistance = distance;
+                    closest = wp;
+                }
+            }
+            return closest;
+        }
+        /// <summary>
+        /// Find order which is closest to the given Bot
+        /// </summary>
+        /// <typeparam name="T">Order type derived from <see cref="Order"/></typeparam>
+        /// <typeparam name="S">>Bot type derived from <see cref="Bot"/></typeparam>
+        /// <param name="list">List of orders from which the closest will be found</param>
+        /// <param name="bot">Bot for which order is being searched</param>
+        /// <returns>Order in <paramref name="list"/> which is closest to <paramref name="bot"/></returns>
+        public T findClosestOrder<T, S>(List<T> list, S bot) where T : Order
+                                                             where S : Bot
+        {
+            T closest = null;
+            double minDistance = double.MaxValue;
+            foreach (var order in list)
+            {
+                double distance = GetWaypointByID(order.Positions.First().Key.ID).GetDistance(bot.CurrentWaypoint);
+                if (distance < minDistance)
+                {
+                    minDistance = distance;
+                    closest = order;
+                }
+            }
+            return closest;
+        }
+
+        private static int lastDropSite = 0;
         #endregion
     }
 }

@@ -17,6 +17,8 @@ namespace RAWSimO.Visualization.Rendering
         public static readonly Brush BrushPodVisual = Brushes.CornflowerBlue;
         public static readonly Brush BrushInputStationVisual = Brushes.Yellow;
         public static readonly Brush BrushOutputStationVisual = Brushes.IndianRed;
+        public static readonly Brush BrushInputPalletStandVisual = Brushes.Yellow;
+        public static readonly Brush BrushOutputPalletStandVisual = Brushes.IndianRed;
         public static readonly Brush BrushElevatorEntranceVisual = Brushes.MediumAquamarine;
         public static readonly Brush BrushOutline = Brushes.Black;
         public static readonly Brush BrushGoalMarker = Brushes.Tomato;
@@ -47,7 +49,21 @@ namespace RAWSimO.Visualization.Rendering
             { "SetdownPod", new SolidColorBrush(Colors.Yellow) },
             { "Rest", new SolidColorBrush(Colors.DarkBlue) },
             { "UseElevator", new SolidColorBrush(Colors.Teal) },
-            { "Debug", new SolidColorBrush(Colors.Red) }
+            { "Debug", new SolidColorBrush(Colors.Red) },
+            { "RequestAssistance", new SolidColorBrush(Colors.Black) },
+            { "MoveToAssist", new SolidColorBrush(Colors.DarkViolet) },
+            { "WaitingForStation", new SolidColorBrush(Colors.DarkRed) },
+            { "WaitingForMate", new SolidColorBrush(Colors.DarkGreen) },
+            { "FinishTask", new SolidColorBrush(Colors.Bisque) },
+            { "PreparePartialTask", new SolidColorBrush(Colors.DarkSeaGreen) },
+            { "GetPallet", new SolidColorBrush(Colors.SpringGreen) },
+            { "PutPallet", new SolidColorBrush(Colors.Teal) },
+            { "PrepareMoveToInputPalletStand", new SolidColorBrush(Colors.SpringGreen) },
+            { "PrepareMoveToOutputPalletStand", new SolidColorBrush(Colors.Teal) },
+            { "WaitingForSeeOffAssistance", new SolidColorBrush(Colors.Goldenrod) },
+            { "BotAssist", new SolidColorBrush(Colors.DarkRed) },
+            { "ChangeDestination", new SolidColorBrush(Colors.DarkViolet) },
+            { "AbortMoveToAndWait", new SolidColorBrush(Colors.DarkViolet) }
         };
 
         public static readonly Dictionary<LetterColors, Brush> LetterColorBackgroundBrushes = new Dictionary<LetterColors, Brush>() {
@@ -62,5 +78,7 @@ namespace RAWSimO.Visualization.Rendering
 
         public static readonly SolidColorBrush SimpleItemColorIncomplete = Brushes.Black;
         public static readonly SolidColorBrush SimpleItemColorComplete = Brushes.White;
+
+        public static readonly SolidColorBrush BrushWaveVisual = Brushes.Red;
     }
 }

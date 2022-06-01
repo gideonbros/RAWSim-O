@@ -63,7 +63,31 @@ namespace RAWSimO.Visualization.Rendering
             _managed2DVisuals[visual].ManagedVisual2D = visual;
         }
 
+        public void Register(IInputStationInfo iStation, SimulationVisualInputPalletStand2D visual)
+        {
+            if (!_managedInfoObjects.ContainsKey(iStation))
+                _managedInfoObjects[iStation] = new SimulationInfoInputStation(_infoHost, iStation);
+            _managed2DVisuals[visual] = _managedInfoObjects[iStation];
+            _managed2DVisuals[visual].ManagedVisual2D = visual;
+        }
+
+        public void Register(IOutputStationInfo oStation, SimulationVisualOutputPalletStand2D visual)
+        {
+            if (!_managedInfoObjects.ContainsKey(oStation))
+                _managedInfoObjects[oStation] = new SimulationInfoOutputStation(_infoHost, oStation);
+            _managed2DVisuals[visual] = _managedInfoObjects[oStation];
+            _managed2DVisuals[visual].ManagedVisual2D = visual;
+        }
+
         public void Register(IWaypointInfo waypoint, SimulationVisualWaypoint2D visual)
+        {
+            if (!_managedInfoObjects.ContainsKey(waypoint))
+                _managedInfoObjects[waypoint] = new SimulationInfoWaypoint(_infoHost, waypoint);
+            _managed2DVisuals[visual] = _managedInfoObjects[waypoint];
+            _managed2DVisuals[visual].ManagedVisual2D = visual;
+        }
+
+        public void Register(IWaypointInfo waypoint, SimulationVisualUnavailablePod2D visual)
         {
             if (!_managedInfoObjects.ContainsKey(waypoint))
                 _managedInfoObjects[waypoint] = new SimulationInfoWaypoint(_infoHost, waypoint);
@@ -153,6 +177,7 @@ namespace RAWSimO.Visualization.Rendering
                 if (_currentInfoObject != null)
                     _currentInfoObject.InfoPanelLeave();
                 _currentInfoObject = null;
+                HandleInfoPanelNoSelection();
             }
         }
 
@@ -174,6 +199,7 @@ namespace RAWSimO.Visualization.Rendering
                 if (_currentInfoObject != null)
                     _currentInfoObject.InfoPanelLeave();
                 _currentInfoObject = null;
+                HandleInfoPanelNoSelection();
             }
         }
 
@@ -213,6 +239,216 @@ namespace RAWSimO.Visualization.Rendering
             _instanceInfoObject.InfoPanelUpdate();
         }
     }
+    #region Bot location manager
+    public class SimulationVisualBotLocationManager
+    {
+        // Root with the open/close triangle
+        public TreeViewItem RootBotLocationTable { get; private set; }
+        public IInstanceInfo _instanceInfo;
+
+        // Connects each bot to the corresponding list of blocks
+        private Dictionary<IBotInfo, WrapPanel> tableRows = new Dictionary<IBotInfo, WrapPanel>();
+
+        private Dictionary<IBotInfo, TextBlock> robotStates = new Dictionary<IBotInfo, TextBlock>();
+        private Dictionary<IBotInfo, TextBlock> robotCurrentRowCol = new Dictionary<IBotInfo, TextBlock>();
+        private Dictionary<IBotInfo, TextBlock> robotTargetRowCol = new Dictionary<IBotInfo, TextBlock>();
+        private Dictionary<IBotInfo, TextBlock> robotGoalRowCol = new Dictionary<IBotInfo, TextBlock>();
+        private Dictionary<IBotInfo, TextBlock> robotCurrAddresses = new Dictionary<IBotInfo, TextBlock>();
+        private Dictionary<IBotInfo, TextBlock> robotCurrMates = new Dictionary<IBotInfo, TextBlock>();
+
+        private Dictionary<IBotInfo, int> botOrder = new Dictionary<IBotInfo, int>();
+        private Dictionary<int, List<Tuple<TextBlock, TextBlock>>> order = new Dictionary<int, List<Tuple<TextBlock, TextBlock>>>();
+        public SimulationVisualBotLocationManager(TreeViewItem rootBotLocationTable, IInstanceInfo instanceInfo)
+        {
+            RootBotLocationTable = rootBotLocationTable;
+            RootBotLocationTable.Header = "Bot location table";
+            _instanceInfo = instanceInfo;
+
+            // column names
+            WrapPanel columnNames = new WrapPanel();
+            columnNames.Children.Add(CreateTextBlock("Bot", Brushes.White, Brushes.Black, 6));
+            columnNames.Children.Add(CreateTextBlock("Status", Brushes.White, Brushes.Black, 15));
+            columnNames.Children.Add(CreateTextBlock("Curr. Row/Col", Brushes.White, Brushes.Black, 15));
+            columnNames.Children.Add(CreateTextBlock("Targ. Row/Col", Brushes.White, Brushes.Black, 15));
+            columnNames.Children.Add(CreateTextBlock("Goal Row/Col", Brushes.White, Brushes.Black, 15));
+            columnNames.Children.Add(CreateTextBlock("Curr. Address", Brushes.White, Brushes.Black, 15));
+            columnNames.Children.Add(CreateTextBlock("Mate", Brushes.White, Brushes.Black, 5));
+
+            RootBotLocationTable.Items.Add(columnNames);
+            
+            order.Add(-1, new List<Tuple<TextBlock, TextBlock>>());
+            foreach (IBotInfo bot in _instanceInfo.GetInfoMovableStations())
+            {
+                // allocate rows of the table
+                tableRows.Add(bot, new WrapPanel() { Orientation = Orientation.Horizontal });
+                RootBotLocationTable.Items.Add(tableRows[bot]);
+
+                botOrder[bot] = -1;
+
+                // add row names
+                TextBlock rowName = CreateTextBlock("Bot " + bot.GetInfoID().ToString(),
+                    ColorManager.GenerateHueBrush(bot.GetInfoHue()), Brushes.Black, 6);
+                tableRows[bot].Children.Add(rowName);
+
+                // add state in the current row
+                robotStates.Add(bot, CreateTextBlock("None", Brushes.White, Brushes.Black, 15));
+                robotCurrentRowCol.Add(bot, CreateTextBlock("None", Brushes.White, Brushes.Black, 15));
+                robotTargetRowCol.Add(bot, CreateTextBlock("None", Brushes.White, Brushes.Black, 15));
+                robotGoalRowCol.Add(bot, CreateTextBlock("None", Brushes.White, Brushes.Black, 15));
+                robotCurrAddresses.Add(bot, CreateTextBlock("-----", Brushes.White, Brushes.Black, 15));
+                robotCurrMates.Add(bot, CreateTextBlock("None", Brushes.White, Brushes.Black, 5));
+                tableRows[bot].Children.Add(robotStates[bot]);
+                tableRows[bot].Children.Add(robotCurrentRowCol[bot]);
+                tableRows[bot].Children.Add(robotTargetRowCol[bot]);
+                tableRows[bot].Children.Add(robotGoalRowCol[bot]);
+                tableRows[bot].Children.Add(robotCurrAddresses[bot]);
+                tableRows[bot].Children.Add(robotCurrMates[bot]);
+            }
+        }
+        private TextBlock CreateTextBlock(string text, Brush back, Brush fore, int padRight)
+        {
+            TextBlock textBlock = new TextBlock() { Padding = new Thickness(3), FontFamily = VisualizationConstants.ItemFont };
+            textBlock.Background = back;
+            textBlock.Foreground = fore;
+            textBlock.Text = text.PadRight(padRight).Substring(0, padRight);
+            return textBlock;
+        }
+        public void Update()
+        {
+            foreach (var bot in _instanceInfo.GetInfoMovableStations())
+            {
+                robotStates[bot].Text = bot.GetInfoState() == null ? ("None").PadRight(15).Substring(0, 15) : bot.GetInfoState().PadRight(15).Substring(0, 15);
+                
+                robotCurrentRowCol[bot].Text = bot.GetInfoCurrentWaypoint() == null ? ("None").PadRight(15).Substring(0, 15) : bot.GetInfoCurrentWaypoint().GetInfoRowColumn().PadRight(15).Substring(0, 15);
+                robotTargetRowCol[bot].Text = bot.GetInfoDestinationWaypoint() == null ? ("None").PadRight(15).Substring(0, 15) : bot.GetInfoDestinationWaypoint().GetInfoRowColumn().PadRight(15).Substring(0, 15);
+                robotGoalRowCol[bot].Text = bot.GetInfoGoalWaypoint() == null ? ("None").PadRight(15).Substring(0, 15) : bot.GetInfoGoalWaypoint().GetInfoRowColumn().PadRight(15).Substring(0, 15);
+
+                Tuple<string, int> addressAndMate = bot.GetCurrentItemAddressAndMate();
+
+                //List<Tuple<string, bool, int, bool>> statusTable = bot.GetStatus();
+                robotCurrAddresses[bot].Text = addressAndMate.Item1.PadRight(15);
+                //robotCurrAddresses[bot].Background = bot.GetCurrentItemAddress(); 
+                robotCurrMates[bot].Text = addressAndMate.Item2 == -1 ? ("None").PadLeft(5) : addressAndMate.Item2.ToString().PadLeft(5);
+            }
+        }
+    }
+    #endregion
+
+    #region Status table manager
+
+    public class SimulationVisualStatusTableManager
+    {
+        // Root with the open/close triangle
+        public TreeViewItem RootStatusTable { get; private set; }
+        private IInstanceInfo _instaceInfo;
+
+        // Connects each bot to the corresponding list of blocks
+        private Dictionary<IBotInfo, WrapPanel> tableRows = new Dictionary<IBotInfo, WrapPanel>();
+
+        private Dictionary<IBotInfo, int> botOrder = new Dictionary<IBotInfo, int>();
+        private Dictionary<int, List<Tuple<TextBlock,TextBlock>>> order = new Dictionary<int, List<Tuple<TextBlock, TextBlock>>>();
+
+        public SimulationVisualStatusTableManager(TreeViewItem rootStatusTable, IInstanceInfo instanceInfo)
+        {
+            RootStatusTable = rootStatusTable;
+            RootStatusTable.Header = "Status table";
+            _instaceInfo = instanceInfo;
+
+            // column names
+            WrapPanel columnNames = new WrapPanel();
+            columnNames.Children.Add(CreateTextBlock("Bot", Brushes.White, Brushes.Black, 6));
+            
+            RootStatusTable.Items.Add(columnNames);
+
+            order.Add(-1, new List<Tuple<TextBlock, TextBlock>>());
+            foreach (IBotInfo bot in _instaceInfo.GetInfoMovableStations())
+            {
+                // allocate rows of the table
+                tableRows.Add(bot, new WrapPanel() { Orientation = Orientation.Horizontal });
+                RootStatusTable.Items.Add(tableRows[bot]);
+
+                botOrder[bot] = -1;
+
+                // add row names
+                TextBlock rowName = CreateTextBlock("Bot " + bot.GetInfoID().ToString(),
+                    ColorManager.GenerateHueBrush(bot.GetInfoHue()), Brushes.Black, 6);
+                tableRows[bot].Children.Add(rowName);
+
+            }
+        }
+
+        private TextBlock CreateTextBlock(string text, Brush back, Brush fore, int padRight)
+        {
+            TextBlock textBlock = new TextBlock() { Padding = new Thickness(3), FontFamily = VisualizationConstants.ItemFont };
+            textBlock.Background = back;
+            textBlock.Foreground = fore;
+            textBlock.Text = text.PadRight(padRight).Substring(0,padRight);
+            return textBlock;
+        }
+
+        public void Update()
+        {
+            //  Update states
+            foreach (var bot in _instaceInfo.GetInfoMovableStations())
+            {
+                // if bot has order
+                int newOrderID = _instaceInfo.GetStatusTableOrderID(bot.GetInfoID());
+                int oldOrderID = botOrder[bot];
+                if (newOrderID != oldOrderID) 
+                {
+                    // clear previos values
+                    foreach(var am in order[oldOrderID])
+                    {
+                        tableRows[bot].Children.Remove(am.Item2);
+                        tableRows[bot].Children.Remove(am.Item1);
+                    }
+                    if (tableRows[bot].Children.Count > 1)
+                        tableRows[bot].Children.RemoveAt(1);
+                    // remove also from order if it is not dummy order (-1)
+                    if (oldOrderID != -1) order.Remove(oldOrderID);
+                    order.Add(newOrderID, new List<Tuple<TextBlock, TextBlock>>());
+                    botOrder[bot] = newOrderID;
+
+                    List<string> addresses = _instaceInfo.GetStatusTableOrderAddresses(bot.GetInfoID());
+
+                    TextBlock orderIDblock = CreateTextBlock(newOrderID.ToString(), Brushes.DarkGray, Brushes.White, 4);
+                    tableRows[bot].Children.Add(orderIDblock);
+
+                    for (int i = 0; i < addresses.Count; ++i)
+                    {
+                        order[newOrderID].Add(
+                            new Tuple<TextBlock, TextBlock>(
+                                CreateTextBlock(addresses[i], Brushes.White, Brushes.Black, 5),
+                                CreateTextBlock("-1", Brushes.LightGray, Brushes.Black, 2)
+                            )
+                        );
+                        tableRows[bot].Children.Add(order[newOrderID][i].Item1);
+                        tableRows[bot].Children.Add(order[newOrderID][i].Item2);
+                    }
+                }    
+                else
+                {
+                    for (int i = 0; i < order[botOrder[bot]].Count; ++i)
+                    {
+                        Tuple<bool, int, bool, bool> info = _instaceInfo.GetStatusTableInfoOnItem(bot.GetInfoID(), i);
+                        bool opened = info.Item1;
+                        bool completed = info.Item3;
+                        int mateID = info.Item2;
+                        bool locked = info.Item4;
+                        order[botOrder[bot]][i].Item2.Text = mateID.ToString().PadLeft(2);
+
+                        order[botOrder[bot]][i].Item2.Foreground = completed ? Brushes.Gray : Brushes.Black;
+                        order[botOrder[bot]][i].Item2.Background = completed ? Brushes.LightGray : (mateID == -1 ? Brushes.LightGray : ColorManager.GenerateHueBrush(_instaceInfo.GetInfoBotHue(mateID)));
+                        order[botOrder[bot]][i].Item1.Background = completed ? Brushes.Gray : (opened ? (locked ? Brushes.Black : Brushes.DarkBlue) : Brushes.White);
+                        order[botOrder[bot]][i].Item1.Foreground = completed ? Brushes.Black : (opened ? Brushes.White : Brushes.Black);
+                    }
+                }
+            }
+        }
+
+    }
+
+    #endregion
 
     #region Order manager
 
@@ -226,28 +462,54 @@ namespace RAWSimO.Visualization.Rendering
             _headerCompletedOrders = headerCompletedOrders;
             _orderCount = orderCount;
         }
+        public SimulationVisualOrderManager(TreeViewItem rootOpenOrders, string headerOpenOrders, TreeViewItem rootCompletedOrders, string headerCompletedOrders, TreeViewItem rootAvailableOrders, string headerAvailableOrders, int orderCount)
+        {
+            RootOpenOrders = rootOpenOrders;
+            RootCompletedOrders = rootCompletedOrders;
+            RootAvailableOrders = rootAvailableOrders;
+            _headerOpenOrders = headerOpenOrders;
+            _headerCompletedOrders = headerCompletedOrders;
+            _headerAvailableOrders = headerAvailableOrders;
+            _orderCount = orderCount;
+        }
 
         public TreeViewItem RootOpenOrders { get; private set; }
         public TreeViewItem RootCompletedOrders { get; private set; }
+        public TreeViewItem RootAvailableOrders { get; private set; }
 
         private int _orderCount;
+        private int _maxDisplayedAvailableOrders = 10;
         private List<IOrderInfo> _droppedOrders = new List<IOrderInfo>();
         private List<IOrderInfo> _completedOrders = new List<IOrderInfo>();
         private List<IOrderInfo> _openOrders = new List<IOrderInfo>();
+        private List<IOrderInfo> _availableOrdersDisplayed = new List<IOrderInfo>();
         private int _openOrderCount;
         private int _completedOrderCount;
+        private int _availableOrderCount;
         private string _headerOpenOrders;
         private string _headerCompletedOrders;
+        private string _headerAvailableOrders;
         private Dictionary<IOrderInfo, bool> _orderStatusOpen = new Dictionary<IOrderInfo, bool>();
+        private Dictionary<IOrderInfo, bool> _orderStatusAvailable = new Dictionary<IOrderInfo, bool>();
         private Dictionary<IOrderInfo, WrapPanel> _orderControls = new Dictionary<IOrderInfo, WrapPanel>();
+        private Dictionary<IOrderInfo, WrapPanel> _availableOrderControls = new Dictionary<IOrderInfo, WrapPanel>();
+        private Dictionary<IOrderInfo, TextBlock> _botControls = new Dictionary<IOrderInfo, TextBlock>();
         private Dictionary<IOrderInfo, Dictionary<IItemDescriptionInfo, TextBlock>> _itemControls = new Dictionary<IOrderInfo, Dictionary<IItemDescriptionInfo, TextBlock>>();
 
+        private TextBlock CreateTextBlock(string text, Brush back, Brush fore, int padRight)
+        {
+            TextBlock textBlock = new TextBlock() { Padding = new Thickness(3), FontFamily = VisualizationConstants.ItemFont };
+            textBlock.Background = back;
+            textBlock.Foreground = fore;
+            textBlock.Text = text.PadRight(padRight).Substring(0,padRight);
+            return textBlock;
+        }
         public void Update(IEnumerable<IOrderInfo> openOrders, IEnumerable<IOrderInfo> completedOrders)
         {
-            // Add new controls for the orders
-            foreach (var order in openOrders.Concat(completedOrders))
+            // Check open orders if there is a new one.
+            // If yes, create a new control for the order.
+            foreach (var order in openOrders)
             {
-                // Check whether a control for this order is already available
                 if (!_orderStatusOpen.ContainsKey(order))
                 {
                     // Create a container for this order
@@ -255,6 +517,15 @@ namespace RAWSimO.Visualization.Rendering
                     RootOpenOrders.Items.Add(_orderControls[order]);
                     // Create the controls for every element of the order
                     _itemControls[order] = new Dictionary<IItemDescriptionInfo, TextBlock>();
+
+                    TextBlock botBlock = new TextBlock() { Padding = new Thickness(3), FontFamily = VisualizationConstants.ItemFont };
+                    botBlock.Background = ColorManager.GenerateHueBrush(order.GetAssignedMovableStationHue());
+                    botBlock.Foreground = Brushes.Black;
+                    botBlock.Text = ("Bot " + order.GetAssignedMovableStationID().ToString()).PadLeft(4);
+                    _botControls[order] = botBlock;
+                    _orderControls[order].Children.Add(botBlock);
+                    TextBlock orderIDblock = CreateTextBlock(order.ID.ToString(), Brushes.DarkGray, Brushes.White, 4);
+                    _orderControls[order].Children.Add(orderIDblock);
                     foreach (var position in order.GetInfoPositions())
                     {
                         TextBlock positionBlock = new TextBlock() { Padding = new Thickness(3), FontFamily = VisualizationConstants.ItemFont };
@@ -270,9 +541,9 @@ namespace RAWSimO.Visualization.Rendering
                             if (position is ISimpleItemDescriptionInfo)
                             {
                                 ISimpleItemDescriptionInfo itemDescription = position as ISimpleItemDescriptionInfo;
-                                positionBlock.Background = ColorManager.GenerateHueBrush(itemDescription.GetInfoHue());
-                                positionBlock.Foreground = VisualizationConstants.SimpleItemColorIncomplete;
-                                positionBlock.Text = (itemDescription.GetInfoID().ToString() + "(0/" + order.GetInfoDemandCount(position) + ")").PadLeft(VisualizationConstants.SIMPLE_ITEM_ORDER_MIN_CHAR_COUNT);
+                                positionBlock.Background = Brushes.White;
+                                positionBlock.Foreground = Brushes.Gray;
+                                positionBlock.Text = itemDescription.GetLocation();
                             }
                             else
                             {
@@ -296,6 +567,16 @@ namespace RAWSimO.Visualization.Rendering
                 if (order.GetInfoIsCompleted())
                     _orderStatusOpen[order] = false;
 
+                // Refresh available order status
+                if (_orderStatusAvailable.ContainsKey(order) && _orderStatusAvailable[order] == true)
+                {
+                    RootAvailableOrders.Items.Remove(_availableOrderControls[order]);
+                    _availableOrderControls.Remove(order);
+                    _availableOrdersDisplayed.Remove(order);
+                    _orderStatusAvailable[order] = false;
+                    continue;
+                }
+
                 // Update all positions
                 foreach (var position in order.GetInfoPositions())
                 {
@@ -309,11 +590,10 @@ namespace RAWSimO.Visualization.Rendering
                     {
                         if (position is ISimpleItemDescriptionInfo)
                         {
-                            // Update the position's text (use the coloring too)
+                            _botControls[order].Text = ("Bot " + order.GetAssignedMovableStationID().ToString()).PadLeft(4);
+                            _botControls[order].Background = ColorManager.GenerateHueBrush(order.GetAssignedMovableStationHue());
                             ISimpleItemDescriptionInfo itemDescription = position as ISimpleItemDescriptionInfo;
-                            _itemControls[order][position].Text =
-                                (itemDescription.GetInfoID().ToString() + "(" + order.GetInfoServedCount(position).ToString() + "/" + order.GetInfoDemandCount(position).ToString() + ")")
-                                    .PadLeft(VisualizationConstants.SIMPLE_ITEM_ORDER_MIN_CHAR_COUNT);
+                            _itemControls[order][position].Text = itemDescription.GetLocation();
                         }
                         else
                         {
@@ -324,8 +604,10 @@ namespace RAWSimO.Visualization.Rendering
                     // Set color according to completed position
                     _itemControls[order][position].Foreground =
                         order.GetInfoServedCount(position) == order.GetInfoDemandCount(position) ? // Check whether position is complete
-                        VisualizationConstants.LetterColorComplete : // Completed the position
-                        VisualizationConstants.LetterColorIncomplete; // Position is incomplete
+                        Brushes.Black : Brushes.Black;
+                    _itemControls[order][position].Background =
+                        order.GetInfoServedCount(position) == order.GetInfoDemandCount(position) ? // Check whether position is complete
+                        Brushes.LightGray : Brushes.White;
                 }
             }
 
@@ -361,8 +643,79 @@ namespace RAWSimO.Visualization.Rendering
 
             // Update order count info
             RootOpenOrders.Header = _headerOpenOrders + " (" + _openOrderCount + ")";
-            RootCompletedOrders.Header = _headerCompletedOrders + " (" + Math.Min(_orderCount, _completedOrderCount) + "/" + _completedOrderCount + ")";
+            RootCompletedOrders.Header = _headerCompletedOrders + " (" + _completedOrderCount + ")";
+
         }
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="openOrders"></param>
+        /// <param name="completedOrders"></param>
+        /// <param name="availableOrders"></param>
+        /// <param name="tot"></param>
+        public void Update(IEnumerable<IOrderInfo> openOrders, IEnumerable<IOrderInfo> completedOrders, IEnumerable<IOrderInfo> availableOrders)
+        {
+            #region AvailableOrders
+            // Add new controls for the available orders
+            foreach (var order in availableOrders.Take(_maxDisplayedAvailableOrders))
+            {
+                if (!_orderStatusAvailable.ContainsKey(order) && _availableOrdersDisplayed.Count() < _maxDisplayedAvailableOrders)
+                {
+                    // Create a container for this order
+                    _availableOrderControls[order] = new WrapPanel() { Orientation = Orientation.Horizontal };
+                    RootAvailableOrders.Items.Add(_availableOrderControls[order]);
+                    // Create the controls for every element of the order
+                    _itemControls[order] = new Dictionary<IItemDescriptionInfo, TextBlock>();
+
+                    TextBlock botBlock = new TextBlock() { Padding = new Thickness(3), FontFamily = VisualizationConstants.ItemFont };
+                    botBlock.Background = Brushes.White;
+                    botBlock.Foreground = Brushes.Black;
+                    botBlock.Text = "     ";
+                    _botControls[order] = botBlock;
+                    _availableOrderControls[order].Children.Add(botBlock);
+                    TextBlock orderIDblock = CreateTextBlock(order.ID.ToString(), Brushes.DarkGray, Brushes.White, 4);
+                    _availableOrderControls[order].Children.Add(orderIDblock);
+                    foreach (var position in order.GetInfoPositions())
+                    {
+                        TextBlock positionBlock = new TextBlock() { Padding = new Thickness(3), FontFamily = VisualizationConstants.ItemFont };
+                        if (position is IColoredLetterDescriptionInfo)
+                        {
+                            IColoredLetterDescriptionInfo itemDescription = position as IColoredLetterDescriptionInfo;
+                            positionBlock.Background = Brushes.White;
+                            positionBlock.Foreground = Brushes.Black;
+                            positionBlock.Text = itemDescription.GetInfoLetter() + "(0/" + order.GetInfoDemandCount(position) + ")";
+                        }
+                        else
+                        {
+                            if (position is ISimpleItemDescriptionInfo)
+                            {
+                                ISimpleItemDescriptionInfo itemDescription = position as ISimpleItemDescriptionInfo;
+                                positionBlock.Background = Brushes.White;
+                                positionBlock.Foreground = Brushes.Black;
+                                positionBlock.Text = itemDescription.GetLocation();
+                            }
+                            else
+                            {
+                                positionBlock.Text = position.GetInfoDescription() + "(0/" + order.GetInfoDemandCount(position) + ")";
+                            }
+                        }
+                        _itemControls[order][position] = positionBlock;
+                        _availableOrderControls[order].Children.Add(positionBlock);
+                    }
+                    // Add the order to the list and mark it as open
+                    _availableOrdersDisplayed.Add(order);
+                    _orderStatusAvailable[order] = true;
+                }
+            }
+
+            _availableOrderCount = availableOrders.Count();
+            RootAvailableOrders.Header = _headerAvailableOrders + " (" + _availableOrderCount + ")";
+
+            #endregion AvailableOrders
+
+            Update(openOrders, completedOrders);
+        }
+
     }
 
     #endregion

@@ -29,6 +29,14 @@ namespace RAWSimO.MultiAgentPathFinding.Elements
         /// </summary>
         public bool IsQueue = false;
         /// <summary>
+        /// Indicates whether an input pallet stand is located on the node.
+        /// </summary>
+        public bool IsInputPalletStand = false;
+        /// <summary>
+        /// Indicates whether an input pallet stand is located on the node.
+        /// </summary>
+        public bool IsOutputPalletStand = false;
+        /// <summary>
         /// If the node is part of a queue, this field contains the id of the terminal / destination node of the queue.
         /// </summary>
         public int QueueTerminal = -1;

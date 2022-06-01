@@ -64,32 +64,32 @@ namespace RAWSimO.Core.Elements
         /// <summary>
         /// The time it takes to transfer one bundle of items onto a pod.
         /// </summary>
-        public double ItemBundleTransferTime;
+        public double ItemBundleTransferTime { get; set; }
 
         /// <summary>
         /// The waypoint this input-station is located at.
         /// </summary>
-        public Waypoint Waypoint;
+        public Waypoint Waypoint { get; set; }
 
         /// <summary>
         /// The order ID of this station that defines the sequence in which the stations have to be activated.
         /// </summary>
-        public int ActivationOrderID;
+        public int ActivationOrderID { get; set; }
 
         /// <summary>
         /// The capacity of this station.
         /// </summary>
-        internal double Capacity;
+        internal double Capacity { get; set; }
 
         /// <summary>
         /// The capacity currently in use at this station.
         /// </summary>
-        internal double CapacityInUse;
+        internal double CapacityInUse { get; set; }
 
         /// <summary>
         /// The amount of capacity reserved by a controller.
         /// </summary>
-        internal double CapacityReserved;
+        internal double CapacityReserved { get; set; }
 
         /// <summary>
         /// Contains information about the items currently contained in this station.
@@ -99,12 +99,7 @@ namespace RAWSimO.Core.Elements
         /// <summary>
         /// The set of bundles not yet allocated but already registered with this station.
         /// </summary>
-        public HashSet<ItemBundle> RegisteredBundles { get { return _registeredBundles; } }
-
-        /// <summary>
-        /// The set of bundles not yet allocated but already registered with this station.
-        /// </summary>
-        private HashSet<ItemBundle> _registeredBundles = new HashSet<ItemBundle>();
+        public HashSet<ItemBundle> RegisteredBundles { get; } = new HashSet<ItemBundle>();
 
         /// <summary>
         /// Contains information about the items currently contained in this station.
@@ -129,8 +124,8 @@ namespace RAWSimO.Core.Elements
         /// <param name="bundle">The bundle for which capacity shall be reserved.</param>
         internal void RegisterBundle(ItemBundle bundle)
         {
-            _registeredBundles.Add(bundle);
-            CapacityReserved = _registeredBundles.Sum(b => b.BundleWeight);
+            RegisteredBundles.Add(bundle);
+            CapacityReserved = RegisteredBundles.Sum(b => b.BundleWeight);
             if (CapacityInUse + CapacityReserved > Capacity)
                 throw new InvalidOperationException("Cannot reserve more capacity than this station has!");
         }
@@ -153,8 +148,8 @@ namespace RAWSimO.Core.Elements
                 // Keep track of capacity
                 CapacityInUse = _itemBundles.Sum(b => b.BundleWeight);
                 // Remove the bundle from the reservation list
-                _registeredBundles.Remove(item);
-                CapacityReserved = _registeredBundles.Sum(b => b.BundleWeight);
+                RegisteredBundles.Remove(item);
+                CapacityReserved = RegisteredBundles.Sum(b => b.BundleWeight);
                 // Notify instance about the allocation
                 Instance.NotifyBundleAllocated(this, item);
                 // Reset down-time
@@ -552,6 +547,11 @@ namespace RAWSimO.Core.Elements
         /// </summary>
         /// <returns>The number of open bundles.</returns>
         public int GetInfoOpenBundles() { return StatCurrentlyOpenBundles; }
+        /// <summary>
+        /// Gets the full name of the object
+        /// </summary>
+        /// <returns>String representing the name of the object</returns>
+        virtual public string GetInfoFullName() { return ToString(); }
 
         #endregion
 

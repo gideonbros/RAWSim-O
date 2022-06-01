@@ -78,9 +78,7 @@ namespace RAWSimO.Core.Control
             if (station.CapacityInUse + 1 > station.Capacity)
                 throw new InvalidOperationException("Allocating the bundle to the station would exceed its capacity!");
             // Hand over the order
-            station.AssignOrder(order);
-            // Add extraction request
-            Instance.ResourceManager.NewOrderAssignedToStation(order, station);
+            station.AssignOrder(order);            
             // Mark orders allocated
             Instance.Controller.OrderManager.SignalOrderAllocated(order, station);
             // Notify item manager

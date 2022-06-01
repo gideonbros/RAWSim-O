@@ -327,7 +327,9 @@ namespace RAWSimO.MultiAgentPathFinding.DataStructures
         /// <summary>
         /// Interval intersection occurred.
         /// </summary>
+#pragma warning disable CA2237 // Mark ISerializable types with serializable
         public class IntervalIntersectionException : Exception
+#pragma warning restore CA2237 // Mark ISerializable types with serializable
         {
             public IntervalIntersectionException(string s) : base(s) { }
         };

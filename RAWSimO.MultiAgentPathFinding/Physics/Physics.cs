@@ -53,11 +53,6 @@ namespace RAWSimO.MultiAgentPathFinding.Physic
         private double _travelDistanceFromFullSpeedToZero;
 
         /// <summary>
-        /// The travel distance needed to break from full speed to zero
-        /// </summary>
-        private bool _calledTimeNeededToMove;
-
-        /// <summary>
         /// Acceleration Duration
         /// </summary>
         private double _accelerationDuration;
@@ -93,6 +88,17 @@ namespace RAWSimO.MultiAgentPathFinding.Physic
         private double _topSpeed;
 
         /// <summary>
+        /// Total (accumulated) traveled distance on the current path
+        /// </summary>
+        private double _totalDistanceTraveled;
+
+        /// <summary>
+        /// Reset the total (accumulated) traveled distance
+        /// </summary>
+        public void resetTotalDistanceTraveled() { _totalDistanceTraveled = 0.0; }
+
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="Physics"/> class.
         /// </summary>
         /// <param name="acceleration">The acceleration in m/s^2.</param>
@@ -112,8 +118,21 @@ namespace RAWSimO.MultiAgentPathFinding.Physic
             _travelDistanceFromFullSpeedToZero = (deceleration * _timeToBreakFromFullSpeedToZero * _timeToBreakFromFullSpeedToZero) / 2;
 
             _timeToAccelerateFromZeroToFullSpeed = maxSpeed / acceleration;
+        }
 
-            _calledTimeNeededToMove = false;
+        /// <summary>
+        /// Copy constructor
+        /// </summary>
+        /// <param name="other"></param>
+        public Physics(Physics other)
+        {
+            Acceleration = other.Acceleration;
+            Deceleration = other.Deceleration;
+            MaxSpeed = other.MaxSpeed;
+            TurnSpeed = other.TurnSpeed;
+            _timeToBreakFromFullSpeedToZero = other._timeToBreakFromFullSpeedToZero;
+            _travelDistanceFromFullSpeedToZero = other._travelDistanceFromFullSpeedToZero;
+            _timeToAccelerateFromZeroToFullSpeed = other._timeToAccelerateFromZeroToFullSpeed;
         }
 
         /// <summary>
@@ -192,8 +211,6 @@ namespace RAWSimO.MultiAgentPathFinding.Physic
         /// <returns>time needed to reach the destination</returns>
         public double getTimeNeededToMove(double currentSpeed, double distanceToDestination)
         {
-            _calledTimeNeededToMove = true;
-
             // Agenda: First accelerate, then full speed, then break.
             //
             // speed
@@ -292,10 +309,10 @@ namespace RAWSimO.MultiAgentPathFinding.Physic
             //Answer:     s = af/2 * t1^2 + ab/2 * t2^2; af*t1=ab*t2 (peek) known: d = distance, af = acceleration, ab = deceleration
             //        <=> d = af/2 * t1^2 + ab/2 * t2^2 and t2=af*t1/ab
             //        <=> d = af/2 * t1^2 + ab/2 * (af*t1/ab)^2
-            //        <=> d = af/2 * t1^2 + af*t1^2/(2*ab)
-            //        <=> t1^2 = d/(af/2 + af/(2*ab))
-            //        <=> t1 = sqrt(d/(af/2 + af/(2*ab)))
-            //        => t = t1 + t2 = sqrt(d/(af/2 + af/(2*ab))) + sqrt(d/(ab/2 + ab/(2*af)))
+            //        <=> d = af/2 * t1^2 + (af*t1)^2/(2*ab)
+            //        <=> t1^2 = d/(af/2 + af^2/(2*ab))
+            //        <=> t1 = sqrt(d/(af/2 + af^2/(2*ab)))
+            //        => t = t1 + t2 = sqrt(d/(af/2 + af^2/(2*ab))) + sqrt(d/(ab/2 + ab/(2*af)))
             //
             //        with current speed > 0 => t' = t - tx and d' = d + af/2 * tx^2
             //
@@ -311,17 +328,28 @@ namespace RAWSimO.MultiAgentPathFinding.Physic
         }
 
         /// <summary>
-        /// Traveled distance after time step. Call timeNeededToMove first
+        /// Traveled distance after time step - accumulated from GetDistanceTraveledDuringTimeSpan
         /// </summary>
         /// <param name="currentOrientation">The current orientation.</param>
         /// <param name="targetOrientation">The target orientation.</param>
         /// <param name="timeSpan">The time span.</param>
         /// <returns>Orientation after time step</returns>
-        public void GetDistanceTraveledAfterTimeStep(double currentSpeed, double timeSpan, out double distanceTraveled, out double newSpeed)
+        public void GetDistanceTraveledAfterTimeStep(double currentSpeed, double timeSpan, out double distanceTraveled, out double totalDistanceTraveled, out double newSpeed)
         {
-            if (!_calledTimeNeededToMove)
-                throw new Exception("Call timeNeededToMove first!");
+            GetDistanceTraveledDuringTimeSpan(currentSpeed, timeSpan, out distanceTraveled, out newSpeed);
+            _totalDistanceTraveled += distanceTraveled;
+            totalDistanceTraveled = _totalDistanceTraveled;
+        }
 
+        /// <summary>
+        /// Traveled distance during the time span, called by GetDistanceTraveledAfterTimeStep
+        /// </summary>
+        /// <param name="currentSpeed"></param>
+        /// <param name="timeSpan"></param>
+        /// <param name="totalDistanceTraveled"></param>
+        /// <param name="newSpeed"></param>
+        public void GetDistanceTraveledDuringTimeSpan(double currentSpeed, double timeSpan, out double distanceTraveled, out double newSpeed)
+        {
             if (_accelerationDuration > 0.0)
             {
                 //accelerate
@@ -339,9 +367,9 @@ namespace RAWSimO.MultiAgentPathFinding.Physic
 
                 var distanceAfterAccelerationTraveled = 0.0;
 
-                //is there more time to drive?
+                //is there more time to drive? avoid accumulation error with flag
                 if (duration < timeSpan)
-                    GetDistanceTraveledAfterTimeStep(newSpeed, timeSpan - duration, out distanceAfterAccelerationTraveled, out newSpeed);
+                    GetDistanceTraveledDuringTimeSpan(newSpeed, timeSpan - duration, out distanceAfterAccelerationTraveled, out newSpeed);
 
                 //add the travel distance after acceleration
                 distanceTraveled += distanceAfterAccelerationTraveled;
@@ -362,11 +390,11 @@ namespace RAWSimO.MultiAgentPathFinding.Physic
 
                 var distanceAfterFullSpeedTraveled = 0.0;
 
-                //is there more time to drive?
+                //is there more time to drive? avoid accumulation error with flag
                 if (duration < timeSpan)
-                    GetDistanceTraveledAfterTimeStep(newSpeed, timeSpan - duration, out distanceAfterFullSpeedTraveled, out newSpeed);
+                    GetDistanceTraveledDuringTimeSpan(newSpeed, timeSpan - duration, out distanceAfterFullSpeedTraveled, out newSpeed);
 
-                //add the travel distance after acceleration
+                //add the travel distance after full speed
                 distanceTraveled += distanceAfterFullSpeedTraveled;
             }
             else
@@ -383,11 +411,7 @@ namespace RAWSimO.MultiAgentPathFinding.Physic
 
                 //reduce times
                 _decelerationDuration = Math.Max(0.0, _decelerationDuration - duration);
-
             }
-
-            _calledTimeNeededToMove = false;
-
         }
 
         /// <summary>
@@ -396,10 +420,10 @@ namespace RAWSimO.MultiAgentPathFinding.Physic
         /// <param name="currentOrientation">The current orientation.</param>
         /// <param name="TargetOrientation">The target orientation.</param>
         /// <returns>time needed to turn</returns>
-        public double getTimeNeededToTurn(double currentOrientation, double targetOrientation)
+        public double getTimeNeededToTurn(double currentOrientation, double targetOrientation, double? startStopTurnSpeed = null)
         {
             //difference clockwise
-            return Math.Abs(_getOrientationDifference(currentOrientation, targetOrientation)) / PI2 * TurnSpeed;
+            return Math.Abs(_getOrientationDifference(currentOrientation, targetOrientation)) / PI2 * (startStopTurnSpeed ?? TurnSpeed);
         }
 
         /// <summary>
@@ -409,11 +433,11 @@ namespace RAWSimO.MultiAgentPathFinding.Physic
         /// <param name="targetOrientation">The target orientation.</param>
         /// <param name="timeSpan">The time span.</param>
         /// <returns>Orientation after time step</returns>
-        public double getOrientationAfterTimeStep(double currentOrientation, double targetOrientation, double timeSpan)
+        public double getOrientationAfterTimeStep(double currentOrientation, double targetOrientation, double timeSpan, double? startStopTurnSpeed = null)
         {
             //orientation parameter
             double orientationAfterTimeStep;
-            double orientationChange = timeSpan * (PI2 / TurnSpeed);
+            double orientationChange = timeSpan * (PI2 / (startStopTurnSpeed ?? TurnSpeed));
             double orientationDifference = _getOrientationDifference(currentOrientation, targetOrientation);
 
             //do not turn over

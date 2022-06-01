@@ -25,7 +25,12 @@ namespace RAWSimO.Core.Elements
         /// <param name="length">The length of the tier (corresponds to the x-axis).</param>
         /// <param name="width">The width of the tier (corresponds to the y-axis).</param>
         internal Tier(Instance instance, double length, double width) : base(instance)
-        { Length = length; Width = width; BotQuadTree = new QuadTree<Bot>(Length, Width); PodQuadTree = new QuadTree<Pod>(Length, Width); }
+        { 
+          Length = length; 
+          Width = width; 
+          BotQuadTree = new QuadTree<Bot>(Length, Width, instance.layoutConfiguration.HorizontalWaypointDistance / 5, instance.layoutConfiguration.VerticalWaypointDistance / 5); 
+          PodQuadTree = new QuadTree<Pod>(Length, Width, instance.layoutConfiguration.HorizontalWaypointDistance / 5, instance.layoutConfiguration.VerticalWaypointDistance / 5); 
+        }
 
         #endregion
 
@@ -70,6 +75,16 @@ namespace RAWSimO.Core.Elements
         /// All input-stations on this tier.
         /// </summary>
         internal List<InputStation> InputStations = new List<InputStation>();
+
+        /// <summary>
+        /// All input-stations on this tier.
+        /// </summary>
+        internal List<InputPalletStand> InputPalletStands = new List<InputPalletStand>();
+
+        /// <summary>
+        /// All output pallet stands of this tier
+        /// </summary>
+        internal List<OutputPalletStand> OutputPalletStands = new List<OutputPalletStand>();
 
         /// <summary>
         /// All output-stations on this tier.
@@ -150,6 +165,19 @@ namespace RAWSimO.Core.Elements
             OutputStations.Add(oStation);
             oStation.Tier = this;
         }
+
+        internal void AddInputPalletStand(InputPalletStand palletStand)
+        {
+            InputPalletStands.Add(palletStand);
+            palletStand.Tier = this;
+        }
+
+        internal void AddOutputPalletStand(OutputPalletStand palletStand)
+        {
+            OutputPalletStands.Add(palletStand);
+            palletStand.Tier = this;
+        }
+
         internal void RemoveOutputStation(OutputStation oStation)
         {
             OutputStations.Remove(oStation);
@@ -248,7 +276,7 @@ namespace RAWSimO.Core.Elements
                 // Check tier boundaries
                 (x - bot.Radius >= 0 || x + bot.Radius <= Length || y - bot.Radius >= 0 || y + bot.Radius <= Width) &&
                 // Check the move of the bot
-                BotQuadTree.IsValidMove(bot, x, y) &&
+                (BotQuadTree.IsValidMove(bot, x, y) || bot is MateBot || (Instance.SettingConfig.DimensionlessBots && !Instance.FindWpFromXY(x,y).IsQueueWaypoint) ) &&
                 // Check the move of the pod
                 (bot.Pod == null || PodQuadTree.IsValidMove(bot.Pod, x, y));
             // Move the bot
@@ -353,6 +381,16 @@ namespace RAWSimO.Core.Elements
         /// </summary>
         /// <returns>All output stations located on this tier.</returns>
         public IEnumerable<IOutputStationInfo> GetInfoOutputStations() { return OutputStations; }
+        /// <summary>
+        /// Returns the input pallet stands placed on this tier.
+        /// </summary>
+        /// <returns>All input pallet stands located on this tier.</returns>
+        public IEnumerable<IInputStationInfo> GetInfoInputPalletStands() { return InputPalletStands; }
+        /// <summary>
+        /// Returns the output pallet stands placed on this tier.
+        /// </summary>
+        /// <returns>All output pallet stands located on this tier.</returns>
+        public IEnumerable<IOutputStationInfo> GetInfoOutputPalletStands() { return OutputPalletStands; }
         /// <summary>
         /// Returns all waypoints on this tier.
         /// </summary>

@@ -1,9 +1,12 @@
-﻿using RAWSimO.Core.Configurations;
+﻿using RAWSimO.Toolbox;
+using RAWSimO.Core.Configurations;
 using RAWSimO.Core.Generator;
 using RAWSimO.Core.Items;
 using RAWSimO.Core.Randomization;
+using RAWSimO.Core.Waypoints;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -67,6 +70,10 @@ namespace RAWSimO.Core.IO
                 {
                     // Deserialize the xml-file
                     settingConfig = (SettingConfiguration)_settingConfigSerializer.Deserialize(sr);
+                    if (settingConfig.Seed == -1)
+                    {
+                        settingConfig.Seed = RandomizerSimple.GetRandomSeed();
+                    }
                     // If it contains a path to a word-file that is not leading to a wordlist file try the default wordlist locations
                     if (settingConfig.InventoryConfiguration.ColoredWordConfiguration != null &&
                         !File.Exists(settingConfig.InventoryConfiguration.ColoredWordConfiguration.WordFile))
@@ -78,12 +85,24 @@ namespace RAWSimO.Core.IO
                         !File.Exists(settingConfig.InventoryConfiguration.FixedInventoryConfiguration.OrderFile))
                         settingConfig.InventoryConfiguration.FixedInventoryConfiguration.OrderFile =
                             IOHelper.FindResourceFile(settingConfig.InventoryConfiguration.FixedInventoryConfiguration.OrderFile, instancePath);
+                    // If it contains a path to an orderLocation-file that is not leading to a  orderLocation-file, try the default orderLocation-file
+                    if (settingConfig.InventoryConfiguration.FixedInventoryConfiguration != null &&
+                        !string.IsNullOrWhiteSpace(settingConfig.InventoryConfiguration.FixedInventoryConfiguration.OrderLocationFile) &&
+                        !File.Exists(settingConfig.InventoryConfiguration.FixedInventoryConfiguration.OrderLocationFile))
+                        settingConfig.InventoryConfiguration.FixedInventoryConfiguration.OrderLocationFile =
+                            IOHelper.FindResourceFile(settingConfig.InventoryConfiguration.FixedInventoryConfiguration.OrderLocationFile, instancePath);
                     // If it contains a path to an simple-item-file that is not leading to a generator config file try the default locations
                     if (settingConfig.InventoryConfiguration.SimpleItemConfiguration != null &&
                         !string.IsNullOrWhiteSpace(settingConfig.InventoryConfiguration.SimpleItemConfiguration.GeneratorConfigFile) &&
                         !File.Exists(settingConfig.InventoryConfiguration.SimpleItemConfiguration.GeneratorConfigFile))
                         settingConfig.InventoryConfiguration.SimpleItemConfiguration.GeneratorConfigFile =
                             IOHelper.FindResourceFile(settingConfig.InventoryConfiguration.SimpleItemConfiguration.GeneratorConfigFile, instancePath);
+                }
+                var valid = settingConfig.CheckValidityOfPaths(out var errorMessage);
+                if (!valid)
+                {
+                    logAction?.Invoke(errorMessage);
+                    return null;
                 }
                 // Read the control configuration
                 logAction?.Invoke("Parsing control config ...");
@@ -103,9 +122,14 @@ namespace RAWSimO.Core.IO
                 // Apply override config, if available
                 if (settingConfig != null && settingConfig.OverrideConfig != null)
                     layoutConfig.ApplyOverrideConfig(settingConfig.OverrideConfig);
+                // If it contains a path to an map-file that is not leading to a map file try the default orderlist locations
+                if (layoutConfig.MapFile != null &&
+                    !string.IsNullOrWhiteSpace(layoutConfig.MapFile) &&
+                    !File.Exists(layoutConfig.MapFile))
+                    layoutConfig.MapFile = IOHelper.FindResourceFile(layoutConfig.MapFile, instancePath);
                 // Generate instance
                 logAction?.Invoke("Generating instance...");
-                instance = InstanceGenerator.GenerateLayout(layoutConfig, new RandomizerSimple(0), settingConfig, controlConfig, logAction);
+                instance = InstanceGenerator.GenerateLayout(layoutConfig, new RandomizerSimple(settingConfig.Seed), settingConfig, controlConfig, logAction);
             }
             else
             {
@@ -186,11 +210,217 @@ namespace RAWSimO.Core.IO
             return list;
         }
         /// <summary>
+        /// Reads an order list from a csv file.
+        /// </summary>
+        /// <param name="orderFile">Path to CSV file</param>
+        /// <param name="instance">The instance to submit to</param>
+        /// <returns>The order list.</returns>
+        public static void ReadOrdersFromFile(string orderFile, Instance instance)
+        {
+            using StreamReader stream = new StreamReader(orderFile);
+
+            if (stream.EndOfStream)
+            {
+                return;
+            }
+
+            var waypointsWithPods = instance.WaypointGraph.GetPodPositions();
+
+            while (!stream.EndOfStream)
+            {
+                var currentLine = stream.ReadLine().Trim();
+                if (currentLine.Length == 0)
+                {
+                    continue;
+                }
+
+                var data = currentLine.Split('|');
+                var line = data[0].Split(',');
+
+                Order order = null;
+
+                if (double.TryParse(line[0], out double dummy))
+                {
+                    if (instance.OrderList == null)
+                    {
+                        instance.CreateOrderList(ItemType.LocationsList);
+                    }
+
+                    order = new Order(instance.GetDropWaypointFromAddress(""));
+                    for (var i = 0; i < line.Length; i += 3)
+                    {
+                        var x = double.Parse(line[i]);
+                        var y = double.Parse(line[i + 1]);
+                        var pickupDuration = double.Parse(line[i + 2]);
+                        var waypoint = waypointsWithPods.Find(waypoint => waypoint.X == x && waypoint.Y == y);
+                        if (waypoint == null)
+                        {
+                            throw new ArgumentException($"location ({x}, {y}) is not valid");
+                        }
+                        order.AddPosition(new SimpleItemDescription(instance, waypoint), 1, pickupDuration);
+                    }
+                    instance.OrderList.Orders.Add(order);
+                }
+                else
+                {
+                    if (instance.OrderList == null)
+                    {
+                        instance.CreateOrderList(ItemType.AddressList);
+                    }
+
+                    List<string> cleanValues = line.Select(s => s.TrimStart('(', '\'', ' ').TrimEnd(')', '\'', ' ')).ToList();
+
+                    if (instance.SettingConfig.BotsSelfAssist)
+                    {
+                        CreateOrder(cleanValues, instance, data[1]);
+                    }
+                    else
+                    {
+                        List<List<string>> splitOrder = new List<List<string>>();
+                        int lastItemInPreviousOrder = -1;
+                        for (int i = 0; i < line.Length; i += 2)
+                        {
+                            if (cleanValues[i + 1].EndsWith(")}"))
+                            {
+                                splitOrder.Add(cleanValues.GetRange(lastItemInPreviousOrder + 1, i + 1 - lastItemInPreviousOrder));
+                                lastItemInPreviousOrder = i + 1;
+                            }
+                        }
+
+                        if (splitOrder.Count == 0)
+                        {
+                            CreateOrder(cleanValues, instance, data[1]);
+                        }
+                        else
+                        {
+                            foreach (var newOrder in splitOrder)
+                            {
+                                CreateOrder(newOrder, instance, data[1]);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // sort the order order (not locations inside orders)
+            if (instance.SettingConfig.SortOrders)
+            {
+                instance.OrderList.Orders.Sort((a, b) =>
+                {
+                    var aY = a.Positions.Max(p => instance.GetWaypointByID(p.Key.ID).Y);
+                    var bY = b.Positions.Max(p => instance.GetWaypointByID(p.Key.ID).Y);
+                    var lenA = a.Positions.Count;
+                    var lenB = b.Positions.Count;
+
+                    // sort by location count, and then by highest location
+                    if (instance.SettingConfig.SortOrdersByLenghtFirst)
+                    {
+                        if (lenA == lenB)
+                        {
+                            return (int)(bY - aY);
+                        }
+                        return lenB - lenA;
+                    }
+                    // sort by highest location
+                    else
+                    {
+                        if (aY == bY)
+                        {
+                            return lenB - lenA;
+                        }
+                        return (int)(bY - aY);
+                    }
+                });
+            }
+        }
+
+        private static void CreateOrder(List<string> cleanValues, Instance instance, string outputStandAddress)
+        {
+            List<Tuple<string, string, int>> valuePairs = new List<Tuple<string, string, int>>();
+            int palletID = -1;
+            if (!cleanValues[0].StartsWith("{('"))
+            {
+                ++palletID;
+            }
+            for (int i = 0; i < cleanValues.Count; i += 2)
+            {
+                if (cleanValues[i].StartsWith("{('"))
+                {
+                    ++palletID;
+                    cleanValues[i] = cleanValues[i].Remove(0, 3);
+                }
+                if (cleanValues[i + 1].EndsWith(")}"))
+                {
+                    cleanValues[i + 1] = cleanValues[i + 1].Remove(cleanValues[i + 1].Length - 2);
+                }
+                else valuePairs.Add(new Tuple<string, string, int>(cleanValues[i], cleanValues[i + 1], palletID));
+            }
+            if (valuePairs.Count == 0) return;
+
+            if (instance.SettingConfig.usingMapSortItems)
+            {
+                valuePairs.Sort(
+                    (Tuple<string, string, int> at, Tuple<string, string, int> bt) =>
+                {
+                    int va = instance.addressToSortOrder[at.Item1], vb = instance.addressToSortOrder[bt.Item1];
+                    if (va == vb) return 0;
+                    else if (va < vb) return -1;
+                    else return 1;
+                }
+                );
+            }
+
+            List<string> allAddresses = valuePairs.Select(pair => pair.Item1).ToList();
+            List<double> allTimes = valuePairs.Select(pair => double.Parse(pair.Item2, CultureInfo.InvariantCulture)).ToList();
+            List<int> allPalletIDs = valuePairs.Select(pair => pair.Item3).ToList();
+
+            List<string> addresses = new List<string>();
+            List<double> times = new List<double>();
+            List<int> palletIDs = new List<int>();
+            instance.MergeTheSameItems(allAddresses, allTimes, addresses, times, allPalletIDs, palletIDs);
+
+            var dict = addresses.Zip(palletIDs, (k, v) => new { k, v }).ToDictionary(x => x.k, x => x.v);
+
+            Order order = new Order(instance.GetDropWaypointFromAddress(outputStandAddress));
+            for (int i = 0; i < addresses.Count; i++)
+            {
+                var waypoint = instance.GetWaypointFromAddress(addresses[i]);
+
+                if (waypoint == null)
+                {
+                    throw new ArgumentException($"waypoint with address {addresses[i]} does not exist");
+                }
+
+                instance.AddInfoLocationAddress(waypoint.ID, addresses[i]);
+
+                SimpleItemDescription description = new SimpleItemDescription(instance, waypoint);
+                // color the order depending on the sector
+
+                description.Hue = instance.GetHueForSector('B');
+                description.location = addresses[i];
+                description.row = instance.GetRowFromY(waypoint.GetInfoCenterY());
+                description.col = instance.GetColFromX(waypoint.GetInfoCenterX());
+                // add order
+                order.AddPosition(description, 1, times[i], dict[addresses[i]]);
+            }
+            instance.OrderList.Orders.Add(order);
+        }
+
+        /// <summary>
+        /// Loads the sector row order from a file
+        /// </summary>
+        /// <param name="locationSortFile"></param>
+        /// <param name="instance"></param>
+        public static void ReadOrderLocationInfo(string locationSortFile, Instance instance)
+        {
+            instance.CreateOrderLocationInfo(locationSortFile);
+        }
+        /// <summary>
         /// Reads the configuration for a simple item generator instance.
         /// </summary>
         /// <param name="file">The file.</param>
         /// <returns>The configuration.</returns>
-        public static SimpleItemGeneratorConfiguration ReadSimpleItemGeneratorConfig(string file)
+        public static SimpleItemGeneratorConfiguration ReadSimpleItemGeneratorConfig(string file, Instance instance)
         {
             // Read the config
             SimpleItemGeneratorConfiguration config = null;
@@ -198,6 +428,14 @@ namespace RAWSimO.Core.IO
             using (StreamReader sr = new StreamReader(searchedPath))
                 // Deserialize the xml-file
                 config = (SimpleItemGeneratorConfiguration)_simpleItemGeneratorConfigSerializer.Deserialize(sr);
+
+            var maxID = instance.PodCount;
+            config.ItemDescriptions.RemoveAll(item => item.Key >= maxID);
+            config.ItemDescriptionWeights.RemoveAll(item => item.Key >= maxID);
+            config.ItemDescriptionBundleSizes.RemoveAll(item => item.Key >= maxID);
+            config.ItemWeights.RemoveAll(item => item.Key >= maxID);
+            config.ItemCoWeights.RemoveAll(item => item.Key1 >= maxID);
+
             return config;
         }
 

@@ -91,6 +91,45 @@ namespace RAWSimO.Core.Configurations
         public bool Recycle = false;
     }
 
+    public class GreedyOrderSchedulerConfiguration : OrderBatchingConfiguration
+    {
+        public override OrderBatchingMethodType GetMethodType(){ return OrderBatchingMethodType.Greedy; }
+        public override string GetMethodName(){
+            if (!string.IsNullOrWhiteSpace(Name)) return Name;
+            return "obG";
+        }
+    }
+
+    public class RemoteOrderSchedulerConfiguration : OrderBatchingConfiguration
+    {
+        /// <summary>
+        /// Host for the remote order scheduler
+        /// </summary>
+        public string Host = "http://127.0.0.1";
+        /// <summary>
+        /// Port for the remote order scheduler
+        /// </summary>
+        public string Port = "5000";
+        /// <summary>
+        /// Path to order assignment optimization
+        /// </summary>
+        public string order_assignment_path = "schedule";
+
+        private string body_type = "application/json";
+
+        public string GetBodyType() {return body_type;}
+
+        public override OrderBatchingMethodType GetMethodType() { return OrderBatchingMethodType.Remote; }
+        public override string GetMethodName()
+        {
+            if (!string.IsNullOrWhiteSpace(Name))
+            {
+                return Name;
+            }
+            return "obRS";
+        }
+    }
+
     /// <summary>
     /// The configuration for the corresponding method.
     /// </summary>

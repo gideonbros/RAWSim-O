@@ -1,12 +1,9 @@
 ﻿using RAWSimO.Core;
-using RAWSimO.Core.Control;
+using RAWSimO.Core.Management;
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
 
 namespace RAWSimO.Visualization.Rendering
 {
@@ -84,7 +81,6 @@ namespace RAWSimO.Visualization.Rendering
             double simulationEndTime = _simulationWorld.Controller.CurrentTime + simulationTime;
             double simulationHorizonEnd = _simulationWorld.SettingConfig.SimulationWarmupTime + _simulationWorld.SettingConfig.SimulationDuration;
             _lastTime = DateTime.Now;
-            double minDelayInSeconds = 10.0 / 1000.0;
 
             // Start prequels
             _simulationWorld.StartExecutionTiming();
@@ -112,14 +108,15 @@ namespace RAWSimO.Visualization.Rendering
                     _simulationWorld.WriteStatistics();
             };
 
+            
+
             // Loop until done or exit requested
-            while (!_exitRequested && !(_simulationWorld.Controller.CurrentTime >= simulationEndTime))
+            while (!_exitRequested && _simulationWorld.Controller.CurrentTime < simulationEndTime)
             {
                 // Calculate time since last frame
-                DateTime newTime = DateTime.Now;
-                double updateAmountInSeconds = (newTime - _lastTime).TotalSeconds;
-                _lastTime = newTime;
-
+                DateTime _lastTime = DateTime.Now;
+                double updateAmountInSeconds = 1.0 / _simulationWorld.SettingConfig.SimulationUpdateRate;
+                
                 // If steps get too long to simulate lower the update rate
                 if (updateAmountInSeconds > 2)
                 {
@@ -133,22 +130,18 @@ namespace RAWSimO.Visualization.Rendering
                 // Check whether the simulation shall pause
                 if (!_paused)
                 {
-                    double timeDelta = _updateRate * updateAmountInSeconds;
-                    // If simulationTime is specified, don't let it go past that time 
-                    if (simulationTime > 0.0)
-                        timeDelta = Math.Min(simulationEndTime - _simulationWorld.Controller.CurrentTime, timeDelta);
+                    _simulationWorld.Controller.Update(updateAmountInSeconds, _updateRate);
 
-                    // Sleep if time available
-                    if (timeDelta < minDelayInSeconds)
+                    double delay = (updateAmountInSeconds * 1000 - (DateTime.Now - _lastTime).TotalMilliseconds);
+                    if (delay > 0)
                     {
-                        // Simulate
-                        _simulationWorld.Controller.Update(timeDelta);
-                        Thread.Sleep((int)((minDelayInSeconds - timeDelta) * 1000));
+                        Thread.Sleep((int)delay);
                     }
-                    else
+
+                    //if order mode is fixed and all the orders have been completed, stop simulating
+                    if (_simulationWorld.SettingConfig.StopCondition)
                     {
-                        // Simulate
-                        _simulationWorld.Controller.Update(timeDelta);
+                        break;
                     }
                 }
                 else
@@ -170,7 +163,7 @@ namespace RAWSimO.Visualization.Rendering
 
         private void VisualizeOnly(object context)
         {
-            double minDelay = 20;
+            double minDelay = 1.0 / _simulationWorld.SettingConfig.SimulationUpdateRate * 1000;
             DateTime lastTime = DateTime.Now;
             while (!_exitRequested)
             {

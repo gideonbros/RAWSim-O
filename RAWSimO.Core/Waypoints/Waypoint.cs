@@ -69,6 +69,16 @@ namespace RAWSimO.Core.Waypoints
         public InputStation InputStation { get; internal set; }
 
         /// <summary>
+        /// Contains the output pallet stabnd located at this waypoint, if there is one.
+        /// </summary>
+        public OutputPalletStand OutputPalletStand{ get; internal set; }
+
+        /// <summary>
+        /// Contains the input pallet stand located at this waypoint, if there is one.
+        /// </summary>
+        public InputPalletStand InputPalletStand { get; internal set; }
+
+        /// <summary>
         /// Contains the elevator connected to this waypoint, if there is one.
         /// </summary>
         public Elevator Elevator { get; internal set; }
@@ -77,6 +87,23 @@ namespace RAWSimO.Core.Waypoints
         /// Contains the pod located at this waypoint, if there is one.
         /// </summary>
         public Pod Pod { get; internal set; }
+
+        /// <summary>
+        /// Contains the set of all the bots whose actual current waypoint is this waypoint (whose x,y coordinates fall in this waypoint area
+        /// </summary>
+        public HashSet<Bot> Bots { get; set; } = new HashSet<Bot>();
+
+        /// <summary>
+        /// Returns whether this waypoint has pod
+        /// </summary>
+        public bool HasPod { get => Pod != null; }
+
+        /// <summary>
+        /// If waypoint is forbidden then robots cannot be there.
+        /// </summary>
+        public bool Forbidden { get; set; }
+
+        public bool UnavailableStorage { get; set; }
 
         /// <summary>
         /// Indicates whether this waypoint can be used to store pods.
@@ -469,12 +496,35 @@ namespace RAWSimO.Core.Waypoints
         /// If this waypoint is a storage location and the pod utility component is active, then this field contains a value reflecting the rank-ID of the storage location.
         /// </summary>
         internal double InfoTagProminence { get; set; } = 0;
-
+        /// <summary>
+        /// Returns the row and column of the object.
+        /// </summary>
+        /// <returns></returns>
+        public string GetInfoRowColumn() { return this.Row.ToString() + ", " + this.Column.ToString() ; }
+        /// <summary>
+        /// Returns the row of the object.
+        /// </summary>
+        /// <returns>Returns the row of the object.</returns>
+        public int GetInfoRow() { return this.Row; }
+        /// <summary>
+        /// Returns the column of the object.
+        /// </summary>
+        /// <returns>Returns the column of the object.</returns>
+        public int GetInfoColumn() { return this.Column; }
         /// <summary>
         /// Indicates whether the waypoint is a storage location.
         /// </summary>
         /// <returns><code>true</code> if it is a storage location, <code>false</code> otherwise.</returns>
         public bool GetInfoStorageLocation() { return PodStorageLocation; }
+
+
+        // The following functions are used to simulate unavailable pods
+        public bool GetInfoUnavailableStorage() { return UnavailableStorage; }
+        public double VerticalLength;
+        public double HorizontalLength;
+        public double GetInfoHorizontalLength() { return HorizontalLength; }
+        public double GetInfoVerticalLength() { return VerticalLength; }
+
         /// <summary>
         /// Gets all outgoing connections of the waypoint.
         /// </summary>
@@ -522,5 +572,19 @@ namespace RAWSimO.Core.Waypoints
         int IExposeVolatileID.VolatileID { get { return VolatileID; } }
 
         #endregion
+
+        #region LocationManager data
+
+        /// <summary>
+        /// Is this waypoint an access point for picking
+        /// </summary>
+        public bool isAccessPoint = false;
+        /// <summary>
+        /// Pointer to the next queueing waypoint
+        /// </summary>
+        public Waypoint nextQueueWaypoint = null;
+
+        #endregion
+
     }
 }

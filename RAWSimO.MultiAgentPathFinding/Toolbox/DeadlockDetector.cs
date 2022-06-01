@@ -1,5 +1,6 @@
 ﻿using RAWSimO.MultiAgentPathFinding.DataStructures;
 using RAWSimO.MultiAgentPathFinding.Elements;
+using RAWSimO.Toolbox;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -114,8 +115,8 @@ namespace RAWSimO.MultiAgentPathFinding.Toolbox
 
             //try to find a free hop
             var possibleEdges = new List<Edge>(_graph.Edges[agent.NextNode]);
-            shuffle<Edge>(possibleEdges);
-            foreach (var edge in possibleEdges.Where(e => !e.ToNodeInfo.IsLocked && (agent.CanGoThroughObstacles || !e.ToNodeInfo.IsObstacle)))
+            possibleEdges.Shuffle();
+            foreach (var edge in possibleEdges.Where(e => (agent.IsMate || !e.ToNodeInfo.IsLocked) && (agent.CanGoThroughObstacles || !e.ToNodeInfo.IsObstacle)))
             {
                 //create intervals
                 if (reservationTable != null)
@@ -147,24 +148,6 @@ namespace RAWSimO.MultiAgentPathFinding.Toolbox
             }
 
             return false;
-        }
-
-        /// <summary>
-        /// Shuffles the specified list.
-        /// </summary>
-        /// <typeparam name="T"></typeparam>
-        /// <param name="list">The list.</param>
-        private void shuffle<T>(IList<T> list)
-        {
-            int n = list.Count;
-            while (n > 1)
-            {
-                int k = (_rnd.Next(0, n) % n);
-                n--;
-                T value = list[k];
-                list[k] = list[n];
-                list[n] = value;
-            }
         }
     }
 }

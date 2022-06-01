@@ -33,6 +33,10 @@ namespace RAWSimO.Core.Control
         #endregion Constructor
 
         #region Fields
+        /// <summary>
+        /// Number of pending orders
+        /// </summary>
+        public int PendingOrdersCount => _pendingOrders.Count;
 
         /// <summary>
         /// The instance this manager is assigned to.
@@ -43,6 +47,12 @@ namespace RAWSimO.Core.Control
         /// All not yet decided orders.
         /// </summary>
         protected HashSet<Order> _pendingOrders = new HashSet<Order>();
+
+        /// <summary>
+        /// List of not yet decided orders, used for easier indexing
+        /// Contains all the same elements as HashSet
+        /// </summary>
+        protected List<Order> _orders = new List<Order>();
 
         /// <summary>
         /// Indicates that the current situation has already been investigated. So that it will be ignored.
@@ -62,6 +72,7 @@ namespace RAWSimO.Core.Control
         {
             // Update lists
             _pendingOrders.Remove(order);
+            _orders.Remove(order);
             // Update intermediate capacity information
             station.RegisterOrder(order);
             // Submit the decision
@@ -156,6 +167,7 @@ namespace RAWSimO.Core.Control
             {
                 // Add the bundle
                 _pendingOrders.Add(order);
+                _orders.Add(order);
                 // Retrieve the next bundle that we have not seen so far
                 order = Instance.ItemManager.RetrieveOrder(this);
                 // Mark new situation

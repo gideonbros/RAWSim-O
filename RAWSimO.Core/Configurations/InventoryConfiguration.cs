@@ -22,12 +22,42 @@ namespace RAWSimO.Core.Configurations
         /// <summary>
         /// The order mode to use when simulating.
         /// </summary>
-        public OrderMode OrderMode = OrderMode.Fill;
+        public OrderMode OrderMode = OrderMode.Fixed;
+
+        /// <summary>
+        /// True if orders come in batches. 
+        /// AverageNumberOfOrders every BatchingTimeInterval
+        /// </summary>
+        public bool UseOrderBatching = false;
+        /// <summary>
+        /// Specifies an average number of orders in a fixed interval of time in Poisson distribuition.
+        /// </summary>
+        public double AverageNumberOfOrders = 1.0;
+        /// <summary>
+        /// Specifies a fixed interval of time in which orders occur in Poisson distribuition.
+        /// </summary>
+        public double BatchingTimeInterval = 100.0;
+
+        /// <summary>
+        /// Use poisson distribution for order batching.
+        /// </summary>
+        public bool UsePoissonBatching = false;
+
+
+        /// <summary>
+        /// Indicates whether the Fill mode will keep refilling during simulation, or just fill once
+        /// </summary>
+        public bool FillOnce = true;
 
         /// <summary>
         /// Indicates whether the batches defined by the batch-configuration will be submitted or not.
         /// </summary>
         public bool SubmitBatches = false;
+
+        /// <summary>
+        /// The initial amount of articles per pod.
+        /// </summary>
+        public int InitialAvailableStockPerPod = 1000000000;
 
         /// <summary>
         /// The relative amount of already filled inventory when starting the simulation. Inventory is filled randomly.
@@ -92,11 +122,11 @@ namespace RAWSimO.Core.Configurations
         /// <summary>
         /// The mean to use for determining the number of lines of an order by using a normal distribution.
         /// </summary>
-        public double OrderPositionCountMean = 1;
+        public double OrderPositionCountMean = 8;
         /// <summary>
         /// The standard deviation to use for determining the number of lines of an order by using a normal distribution.
         /// </summary>
-        public double OrderPositionCountStdDev = 1;
+        public double OrderPositionCountStdDev = 2;
         /// <summary>
         /// The minimal number of lines for an order (inclusive bound).
         /// </summary>
@@ -104,7 +134,7 @@ namespace RAWSimO.Core.Configurations
         /// <summary>
         /// The maximal number of lines for an order (inclusive bound).
         /// </summary>
-        public int OrderPositionCountMax = 4;
+        public int OrderPositionCountMax = 12;
 
         /// <summary>
         /// Indicates that due times shall be generated to emulate priority mode, i.e. a shorter due time is selected with the given probability.
@@ -147,7 +177,9 @@ namespace RAWSimO.Core.Configurations
         /// <summary>
         /// The configuration for reading orders and inventory from a given file.
         /// </summary>
-        public FixedInventoryConfiguration FixedInventoryConfiguration;
+        public FixedInventoryConfiguration FixedInventoryConfiguration = new FixedInventoryConfiguration();
+        // debugging verision -> instantiated in another part
+        //public FixedInventoryConfiguration FixedInventoryConfiguration;
 
         /// <summary>
         /// The configuration for generating orders and inventory using a poisson process.
@@ -467,7 +499,11 @@ namespace RAWSimO.Core.Configurations
         /// <summary>
         /// The file containing the list of orders. This is not necessary in case randomly generated orders are used.
         /// </summary>
-        public string OrderFile;
+        public string OrderFile = "";
+
+        public string OrderLocationFile = "";
+
+        public FixedInventoryConfiguration() { }
     }
 
     /// <summary>
@@ -478,11 +514,11 @@ namespace RAWSimO.Core.Configurations
         /// <summary>
         /// The order count to have available (in demand-mode).
         /// </summary>
-        public int OrderCount = 200;
+        public int OrderCount = 60;
         /// <summary>
         /// The bundle count to have available (in demand-mode).
         /// </summary>
-        public int BundleCount = 200;
+        public int BundleCount = 0;
         /// <summary>
         /// Indicates whether inventory level is tracked and bundles are only generated when below certain threshold.
         /// </summary>

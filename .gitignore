@@ -10,3 +10,13 @@ packages/*
 *.vsp
 *.orig
 .vs/*
+*/.vscode/*
+*/controllog.txt
+*/Wordlists/*.txt
+/Material/Resources/Wordlists
+resources/*
+!resources/warehouse_examples
+!resources/warehouse_examples/*
+!resources/.keep
+!resources/warehouses
+statistics/*

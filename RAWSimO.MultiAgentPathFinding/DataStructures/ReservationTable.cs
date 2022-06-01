@@ -28,6 +28,11 @@ namespace RAWSimO.MultiAgentPathFinding.DataStructures
         protected DisjointIntervalTree[] _intervallTrees;
 
         /// <summary>
+        /// The intervals to be accessed publicly
+        /// </summary>
+        public DisjointIntervalTree[] IntervallTrees { get { return _intervallTrees; } }
+
+        /// <summary>
         /// The touched nodes
         /// </summary>
         protected HashSet<int> _touchedNodes;
@@ -272,6 +277,25 @@ namespace RAWSimO.MultiAgentPathFinding.DataStructures
         /// </summary>
         /// <param name="intervals">The list of intervals.</param>
         /// <returns>false, if there is an intersection</returns>
+        public bool IntersectionFree(List<Interval> intervals, out List<int> blockedAgents)
+        {
+            blockedAgents = new List<int>();
+            foreach(var interval in intervals)
+            {
+                if(!IntersectionFree(interval, out int blockedAgentidx))
+                {
+                    if (!blockedAgents.Contains(blockedAgentidx))
+                        blockedAgents.Add(blockedAgentidx);
+                }
+            }
+            return !blockedAgents.Any();
+        }
+
+        /// <summary>
+        /// Checks weather the given interval intersects with an existing interval.
+        /// </summary>
+        /// <param name="intervals">The list of intervals.</param>
+        /// <returns>false, if there is an intersection</returns>
         public bool IntersectionFree(List<Interval> intervals, out int nodeId, out int agentId)
         {
             nodeId = -1;
@@ -490,6 +514,14 @@ namespace RAWSimO.MultiAgentPathFinding.DataStructures
         {
             var intervals = new List<Interval>();
 
+            //if only one checkpoint node is passed
+            if(checkpointNodes.Count == 1)
+            {
+                var endIntervalAt = addIntervalToInfinity ? double.PositiveInfinity : checkpointTimes[0];
+                intervals.Add(new Interval(checkpointNodes[0], startIntervalAt, endIntervalAt));
+                return intervals;
+            }
+
             //go through all checkpoints
             for (var i = 0; i < checkpointNodes.Count; i++)
             {
@@ -545,17 +577,15 @@ namespace RAWSimO.MultiAgentPathFinding.DataStructures
         /// </returns>
         public List<Interval> CreateIntervals(double startIntervalAt, double startDrivingAt, double currentSpeed, Physic.Physics physics, int startNode, int destinationNode, bool addIntervalToInfinity)
         {
-            if (currentSpeed > 0 && startIntervalAt == startDrivingAt)
+            if (currentSpeed > 0 && startIntervalAt != startDrivingAt)
                 throw new ArgumentException("The agent is already driving => startIntervalAt must be equal to startDrivingAt!");
 
-            List<int> checkPointNodes;
-            List<double> checkPointTimes;
-            var valid = this.GetCheckPointNodes(startDrivingAt, currentSpeed, physics, startNode, destinationNode, out checkPointNodes, out checkPointTimes);
+            var valid = GetCheckPointNodes(startDrivingAt, currentSpeed, physics, startNode, destinationNode, out var checkPointNodes, out var checkPointTimes);
 
-            if (!valid)
-                return null;
+            //destinationNode was not reachable
+            if (!valid) return null;
 
-            return this.CreateIntervals(startIntervalAt, checkPointNodes, checkPointTimes, addIntervalToInfinity);
+            return CreateIntervals(startIntervalAt, checkPointNodes, checkPointTimes, addIntervalToInfinity);
         }
 
         /// <summary>
@@ -573,12 +603,22 @@ namespace RAWSimO.MultiAgentPathFinding.DataStructures
         /// </returns>
         public bool GetCheckPointNodes(double startTime, double currentSpeed, Physic.Physics physics, int startNode, int destinationNode, out List<int> checkpointNodes, out List<double> checkpointTimes)
         {
+            if(startNode == destinationNode)
+            {
+                checkpointNodes = new List<int>() { startNode };
+                checkpointTimes = new List<double>() { startTime };
+                return true;
+            }
+
             //get checkpoints
-            checkpointNodes = _graph.getIntermediateNodes(startNode, destinationNode);
+            checkpointNodes = _graph.getIntermediateNodes(startNode, destinationNode); //without start or destination node
             checkpointTimes = null;
 
-            if (checkpointNodes == null)
-                return false; //no valid way point
+            //getIntermediateNodes() failed to reach destinationNode on _graph
+            if(checkpointNodes == null)
+            {
+                return false;
+            }
 
             checkpointNodes.Insert(0, startNode);
             checkpointNodes.Add(destinationNode);

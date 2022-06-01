@@ -1,0 +1,5 @@
+{
+	"simulation_duration" : 172800,
+	"const_assist_time": -1,
+	"switch_pallet_time": 20
+}

@@ -186,7 +186,7 @@ namespace RAWSimO.MultiAgentPathFinding
         /// <value>
         /// The next action.
         /// </value>
-        public Action NextAction { get { return _actions.First.Value; } }
+        public Action NextAction { get { return _actions?.First?.Value; } }
 
         /// <summary>
         /// Gets the last action.
@@ -194,7 +194,7 @@ namespace RAWSimO.MultiAgentPathFinding
         /// <value>
         /// The last action.
         /// </value>
-        public Action LastAction { get { return _actions.Last.Value; } }
+        public Action LastAction { get { return _actions?.Last?.Value; } }
 
         /// <summary>
         /// ID of the next node to turn towards after completing the path, if given. If a value smaller than 0 is given, no preparation will be executed.

@@ -25,7 +25,7 @@ namespace RAWSimO.Core.Interfaces
         /// <summary>
         /// Returns the current waypoint this bot wants to drive to
         /// </summary>
-        Waypoint DestinationWaypoint { get; }
+        Waypoint DestinationWaypoint { get; set;  }
 
         /// <summary>
         /// The type of this state.

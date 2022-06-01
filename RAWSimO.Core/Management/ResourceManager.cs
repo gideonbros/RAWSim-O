@@ -29,6 +29,7 @@ namespace RAWSimO.Core.Management
             _unusedPods = new HashSet<Pod>(instance.Pods);
             List<Waypoint> usedStorageLocations = instance.Waypoints.Where(w => w.Pod != null).ToList();
             List<Waypoint> unusedStorageLocations = instance.Waypoints.Where(w => w.PodStorageLocation).Except(usedStorageLocations).ToList();
+            unusedStorageLocations.AddRange(instance.ParkingLot);
             foreach (var wp in usedStorageLocations)
                 AddNewUsedPodStorageLocation(wp.Pod, wp);
             foreach (var wp in unusedStorageLocations)
@@ -50,6 +51,79 @@ namespace RAWSimO.Core.Management
         /// The instance this manager belongs to.
         /// </summary>
         private Instance _instance;
+
+        #region GatherTask handling
+        private HashSet<Waypoint> lockedGatherTaskPositions = new HashSet<Waypoint>();
+        public bool TryToLockPosition(Waypoint destination, out Waypoint BotDestination, out Waypoint AssistantDestination)
+        {
+            //if assistance destination is already locked, report fail
+            if (lockedGatherTaskPositions.Contains(destination))
+            {
+                //nullify out parametars
+                BotDestination = null;
+                AssistantDestination = null;
+                return false;
+            }
+
+            //bot performs assisting by itself - assign destination to it
+            if (_instance.SettingConfig.BotsSelfAssist)
+            {
+                BotDestination = destination;
+                AssistantDestination = null;
+                lockedGatherTaskPositions.Add(BotDestination);
+                return true;
+            }
+
+            // bot goes to the same location as mate
+            if (_instance.SettingConfig.SameAssistLocation)
+            {
+                BotDestination = destination;
+                AssistantDestination = destination;
+                lockedGatherTaskPositions.Add(destination);
+                return true;
+            }
+
+            //search for available bot destination
+            foreach (Waypoint waypoint in destination.Paths)
+            {
+                if (!(waypoint.HasPod || lockedGatherTaskPositions.Contains(waypoint)))
+                {
+                    BotDestination = waypoint;
+                    AssistantDestination = destination;
+                    lockedGatherTaskPositions.Add(BotDestination);
+                    lockedGatherTaskPositions.Add(AssistantDestination);
+                    return true;
+                }
+            }
+
+            //if no waypoint satisfied the above condition, than report fail
+            BotDestination = null;
+            AssistantDestination = null;
+            return false;
+        }
+        /// <summary>
+        /// Free previously locked position
+        /// </summary>
+        /// <param name="waypoint"></param>
+        public void FreeLockedPosition(Waypoint waypoint)
+        {
+            lockedGatherTaskPositions.Remove(waypoint);
+        }
+        /// <summary>
+        /// Checks the validity of locked <paramref name="waypoint"/>
+        /// </summary>
+        /// <param name="waypoint"><see cref="Waypoint"/> to check</param>
+        public void CheckLockedPosition(Waypoint waypoint)
+        {
+            foreach(Waypoint wp in waypoint.Paths)
+            {
+                //if waypoint connected to wp is also locked, everything is fine
+                if (lockedGatherTaskPositions.Contains(wp)) return;
+            }
+            //waypoint is not validly locked
+            lockedGatherTaskPositions.Remove(waypoint);
+        }
+        #endregion
 
         #region Pod handling
 
@@ -430,8 +504,10 @@ namespace RAWSimO.Core.Management
                 // Manage queue info
                 _stationQueuedPerExtractRequest.Remove(request);
             }
+            /*
             station.StatCurrentlyOpenRequests = _availableExtractRequestsPerStation[station].Count;
             station.StatCurrentlyOpenQueuedRequests = _availableExtractRequestsPerStationQueue[station].Count;
+            */
         }
 
         /// <summary>

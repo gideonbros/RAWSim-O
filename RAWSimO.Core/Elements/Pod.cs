@@ -43,6 +43,16 @@ namespace RAWSimO.Core.Elements
         internal const int MAX_ITEMDESCRIPTION_COUNT_FOR_FAST_ACCESS = 1000;
 
         /// <summary>
+        /// Horizontal length of the object.
+        /// </summary>
+        internal double HorizontalLength;
+
+        /// <summary>
+        /// Vertical length of the object.
+        /// </summary>
+        internal double VerticalLength;
+        
+        /// <summary>
         /// The capacity of this pod.
         /// </summary>
         internal double Capacity;
@@ -61,6 +71,15 @@ namespace RAWSimO.Core.Elements
         /// Indicates whether the pod is currently carried by a bot.
         /// </summary>
         internal bool InUse;
+
+        /// <summary>
+        /// Contains address of pod in map
+        /// </summary>
+        internal string Address;
+        /// <summary>
+        /// Contains zone of pod
+        /// </summary>
+        internal string Zone;
 
         /// <summary>
         /// The waypoint this pod is currently stored at. If the pod is currently being used or not properly setdown at a waypoint, this field will be <code>null</code>.
@@ -497,6 +516,74 @@ namespace RAWSimO.Core.Elements
                 default:
                     return 0;
             }
+        }
+        /// <summary>
+        /// Returns the horizontal length of the object.
+        /// </summary>
+        /// <returns>The horizontal length of the object.</returns>
+        public double GetInfoHorizontalLength() { return HorizontalLength; }
+        /// <summary>
+        /// Returns the vertical length of the object.
+        /// </summary>
+        /// <returns>The vertical length of the object.</returns>
+        public double GetInfoVerticalLength() { return VerticalLength; }
+        /// <summary>
+        /// Returns the address of the object.
+        /// </summary>
+        /// <returns>Returns the address of the object.</returns>
+        public string GetPodAddress()
+        {
+            return Address;
+        }
+        /// <summary>
+        /// Return waypoint ID or -1 when there is none.
+        /// </summary>
+        /// <returns></returns>
+        public int GetPodWaypointID()
+        {
+            if (Waypoint != null)
+                return Waypoint.ID;
+            else return -1;
+        }
+        /// <summary>
+        /// Returns the zone of the object.
+        /// </summary>
+        /// <returns>Returns the zone of the object.</returns>
+        public string GetPodZone()
+        {
+            return Zone;
+        }
+        public int GetRowFromY(double y)
+        {
+            return Instance.GetRowFromY(y);
+        }
+        public int GetColFromX(double x)
+        {
+            return Instance.GetColFromX(x);
+        }
+        public double GetStatusColorKey()
+        {
+            int colorKey = Instance.GetColorKeyForPodAddress(GetPodAddress());
+            if (colorKey >= 0)
+            {
+                return Instance.GetBotByID(colorKey).GetInfoHue();
+            }
+            else
+            {
+                // if -1 is returned, change it to -2 and coloring will be nice gray
+                // since the hue for red is 0, we have to offset this
+                return colorKey - 1;
+            }
+        }
+        public double GetPodLocked()
+        {
+            int ID = Instance.GetPodLockedForAddress(GetPodAddress());
+            if (ID > -1)
+            {
+                double hue = Instance.GetBotByID(ID).GetInfoHue();
+                return hue;
+            }
+            else return -1;
         }
         /// <summary>
         /// Gets the capacity this pod offers.

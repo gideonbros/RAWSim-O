@@ -27,8 +27,12 @@ namespace RAWSimO.Core.IO
             // Adapt to environment
             resourceFile = resourceFile.Replace('\\', Path.DirectorySeparatorChar);
             resourceFile = resourceFile.Replace('/', Path.DirectorySeparatorChar);
+            var trydirsplit = resourceFile.Split(Path.DirectorySeparatorChar);
+            if (File.Exists(resourceFile))
+                return resourceFile;
             // Get name
             string fileName = Path.GetFileName(resourceFile);
+            string dirName = Path.GetDirectoryName(resourceFile);
             string resultResourceFile = "";
             // Use complete path as default
             resultResourceFile = resourceFile;
@@ -36,8 +40,14 @@ namespace RAWSimO.Core.IO
             if (File.Exists(fileName))
                 resultResourceFile = fileName;
             // Try the default directories
+            List<string> dir_combine = new List<string>() { "", };
+            dir_combine.AddRange(trydirsplit.Take(trydirsplit.Count() - 1));
             foreach (var dir in IOConstants.DEFAULT_RESOURCE_DIRS)
+            {
                 TryDirectory(fileName, dir, ref resultResourceFile);
+                dir_combine[0] = dir;
+                TryDirectory(fileName, Path.Combine(dir_combine.ToArray()), ref resultResourceFile);
+            }
             // Try the directory of the instance
             string instancePathFile = Path.Combine(Path.GetDirectoryName(instancePath), fileName);
             if (!string.IsNullOrWhiteSpace(instancePath) && File.Exists(instancePathFile))
@@ -46,7 +56,7 @@ namespace RAWSimO.Core.IO
             if (File.Exists(resultResourceFile))
                 return resultResourceFile;
             else
-                throw new ArgumentException("Cannot find the resource file: " + resourceFile + "(Tried: " + string.Join(",", IOConstants.DEFAULT_RESOURCE_DIRS) + ")");
+                throw new ArgumentException("Cannot find the resource file: " + resourceFile + "(Tried: \n    " + string.Join("\n    ", IOConstants.DEFAULT_RESOURCE_DIRS) + ")");
         }
         /// <summary>
         /// Checks whether the file exists.

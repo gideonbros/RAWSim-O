@@ -1,0 +1,9 @@
+{
+	"bots_as_pickers": false,
+	"vehicle_max_velocity": 1.15,
+	"human_max_velocity": 1,
+	"vehicle_max_acceleration": 0.25,
+	"human_max_acceleration": 10,
+	"vehicle_max_deceleration": 0.25,
+	"human_max_deceleration": 10
+}

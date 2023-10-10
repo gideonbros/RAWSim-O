@@ -54,17 +54,78 @@ namespace RAWSimO.Core.Control.Defaults.TaskAllocation
         protected override void GetNextTask(Bot bot)
         {
             MovableStation station = null;
-            if(bot is MovableStation){
-                station = bot as MovableStation;
-                if (station.AssignedOrders.Count() == 0)
-                {
-                    SendToRest(bot);
-                    return;
-                }
-                EnqueueMultiPointGather(station, station.AssignedOrders.First()); 
-            }else{
+            if(!(bot is MovableStation))
+            {
                 return;
             }
+            station = bot as MovableStation;
+            int completedOrdersCount = station.Instance.ItemManager.CompletedOrdersCount;
+                
+            if (station.IsRefill) 
+            {
+                // Trigger refills after certain number of completed orders.
+                if (station.Instance.RefillsList.ContainsKey(completedOrdersCount))
+                {
+
+                    station.Instance.Controller.OrderManager.RequestStockRefillingAtLocation(
+                        station.Instance.RefillsList[completedOrdersCount]
+                        );
+                    station.Instance.RefillsList.Remove(completedOrdersCount);
+                }
+
+                if ( station.CurrentlyRefilling || (!station.Instance.Controller.OrderManager.IsRefillingNeeded() && !station.Instance.Controller.OrderManager.IsStockRefillingNeeded()) )
+                {
+                    station.CurrentlyRefilling = false;
+                    Waypoint ClaimedRestingLocation = bot.Instance.findClosestLocation(bot.Instance.ResourceManager.UnusedRestingLocations.ToList(), bot.CurrentWaypoint);
+
+                    EnqueueRest(bot, ClaimedRestingLocation);
+                    return;
+                }
+                    
+                station.CurrentlyRefilling = true;
+                List<string> addresses = new List<string>();
+
+                bool stockRefillNeeded = false;
+                // First priority is to refill the lowest level, the first pallet floor
+                if (station.Instance.Controller.OrderManager.IsRefillingNeeded())
+                {
+                    int count = 0;
+                    while (station.Instance.Controller.OrderManager.IsRefillingNeeded())
+                    {
+                        addresses.Add(station.Instance.Controller.OrderManager.NextRefillingAddress());
+                        count++;
+                        if (count == Instance.SettingConfig.MaxNumberOfItemsRefilledAtOnce)
+                        {
+                            break;
+                        }
+                    }
+                }
+                else // Second priority is to refill the stock (upper pallets)
+                {
+                    stockRefillNeeded = true;
+                    int count = 0;
+                    while (station.Instance.Controller.OrderManager.IsStockRefillingNeeded())
+                    {
+                        addresses.Add(station.Instance.Controller.OrderManager.NextStockRefillingAddress());
+                        count++;
+                        if (count == Instance.SettingConfig.MaxNumberOfItemsRefilledAtOnce)
+                        {
+                            break;
+                        }
+                    }
+                }
+                
+
+                EnqueueRefillingTask(station, addresses, stockRefillNeeded);
+                return;
+            }
+            else if (station.AssignedOrders.Count() == 0)
+            {
+                SendToRest(bot);
+                return;
+            }
+            EnqueueMultiPointGather(station, station.AssignedOrders.First()); 
+
 
         }
         /// <summary>
@@ -82,6 +143,26 @@ namespace RAWSimO.Core.Control.Defaults.TaskAllocation
             var moreEfficientLocations = Instance.InputPalletStands.FindAll(s => s.IncomingBots <= (inputPalletStandLocation.InputPalletStand.IncomingBots - 3));
             if (moreEfficientLocations.Any())
                 inputPalletStandLocation = Instance.findClosestLocation(moreEfficientLocations.ConvertAll(ips => ips.Waypoint), task.Locations.First());
+
+            ++inputPalletStandLocation.InputPalletStand.IncomingBots;
+            return inputPalletStandLocation;
+
+        }
+        /// <summary>
+        /// Finds the closest input pallet stand for the given <paramref name="bot"/>
+        /// </summary>
+        /// <param name="bot">Bot which needs the input pallet stand</param>
+        /// <returns>Input pallet stand waypoint</returns>
+        public Waypoint GetClosestInputPalletStandLocation(Waypoint current_wp)
+        {
+            // Closest input pallet stand
+            var waypointLocations = Instance.InputPalletStands.ConvertAll(s => s.Waypoint);
+            var inputPalletStandLocation = Instance.findClosestLocation(waypointLocations, current_wp);
+
+            // Go to another intput pallet stand if it is more time-efficient than waiting for its turn on the closest one
+            var moreEfficientLocations = Instance.InputPalletStands.FindAll(s => s.IncomingBots <= (inputPalletStandLocation.InputPalletStand.IncomingBots - 3));
+            if (moreEfficientLocations.Any())
+                inputPalletStandLocation = Instance.findClosestLocation(moreEfficientLocations.ConvertAll(ips => ips.Waypoint), current_wp);
 
             ++inputPalletStandLocation.InputPalletStand.IncomingBots;
             return inputPalletStandLocation;

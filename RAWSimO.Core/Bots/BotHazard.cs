@@ -807,7 +807,8 @@ namespace RAWSimO.Core.Bots
                 Idle(lastTime, currentTime);
 
             // Update statistics
-            _updateStatistics(timeDelta, xOld, yOld);
+            if (IsActive)
+                _updateStatistics(timeDelta, xOld, yOld);
         }
 
         /// <summary>
@@ -918,8 +919,10 @@ namespace RAWSimO.Core.Bots
             if (this.Pod != null)
                 this.Pod.Moving = this.Moving;
 
+   
             // Count distanceTraveled
             this.StatDistanceTraveled += Math.Sqrt((X - xOld) * (X - xOld) + (Y - yOld) * (Y - yOld));
+            
 
             // Compute time in previous task
             this.StatTotalTaskTimes[StatLastTask] += timeDelta;

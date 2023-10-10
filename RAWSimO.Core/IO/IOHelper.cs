@@ -70,5 +70,51 @@ namespace RAWSimO.Core.IO
             if (File.Exists(path))
                 resultPath = path;
         }
+
+        /// <summary>
+        /// Finds the given wordlist by looking up default directories for the wordlists.
+        /// </summary>
+        /// <param name="resourceFile">The wordfile to look for.</param>
+        /// <param name="instancePath">The path of the instance (one of the default storage locations).</param>
+        /// <returns>True if successfully retrieved wordfile, else False.</returns>
+        public static bool ResourceFileExists(string resourceFile, string instancePath)
+        {
+            // If it exists, do not search for it
+            if (File.Exists(resourceFile))
+                return true;
+            // Adapt to environment
+            resourceFile = resourceFile.Replace('\\', Path.DirectorySeparatorChar);
+            resourceFile = resourceFile.Replace('/', Path.DirectorySeparatorChar);
+            var trydirsplit = resourceFile.Split(Path.DirectorySeparatorChar);
+            if (File.Exists(resourceFile))
+                return true;
+            // Get name
+            string fileName = Path.GetFileName(resourceFile);
+            string dirName = Path.GetDirectoryName(resourceFile);
+            string resultResourceFile = "";
+            // Use complete path as default
+            resultResourceFile = resourceFile;
+            // Try the working directory
+            if (File.Exists(fileName))
+                resultResourceFile = fileName;
+            // Try the default directories
+            List<string> dir_combine = new List<string>() { "", };
+            dir_combine.AddRange(trydirsplit.Take(trydirsplit.Count() - 1));
+            foreach (var dir in IOConstants.DEFAULT_RESOURCE_DIRS)
+            {
+                TryDirectory(fileName, dir, ref resultResourceFile);
+                dir_combine[0] = dir;
+                TryDirectory(fileName, Path.Combine(dir_combine.ToArray()), ref resultResourceFile);
+            }
+            // Try the directory of the instance
+            string instancePathFile = Path.Combine(Path.GetDirectoryName(instancePath), fileName);
+            if (!string.IsNullOrWhiteSpace(instancePath) && File.Exists(instancePathFile))
+                resultResourceFile = instancePathFile;
+            // Return it
+            if (File.Exists(resultResourceFile))
+                return true;
+            else
+                return false;
+        }
     }
 }

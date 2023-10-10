@@ -68,6 +68,11 @@ namespace RAWSimO.Core.Elements
         internal double CapacityReserved;
 
         /// <summary>
+        /// Capacity of the all pallets above the main one.
+        /// </summary>
+        internal double StockCapacity;
+
+        /// <summary>
         /// Indicates whether the pod is currently carried by a bot.
         /// </summary>
         internal bool InUse;
@@ -80,6 +85,11 @@ namespace RAWSimO.Core.Elements
         /// Contains zone of pod
         /// </summary>
         internal string Zone;
+
+        /// <summary>
+        /// Flag used for info about refilling.
+        /// </summary>
+        internal bool IsRefilling;
 
         /// <summary>
         /// The waypoint this pod is currently stored at. If the pod is currently being used or not properly setdown at a waypoint, this field will be <code>null</code>.
@@ -600,6 +610,11 @@ namespace RAWSimO.Core.Elements
         /// </summary>
         /// <returns>The capacity reserved.</returns>
         public double GetInfoCapacityReserved() { return CapacityReserved; }
+        /// <summary>
+        /// Gets the absolute stock capacity. Capacity of the all pallets above the main one.
+        /// </summary>
+        /// <returns>The stock capacity.</returns>
+        public double GetInfoStockCapacity() { return StockCapacity; }
         /// <summary>
         /// Indicates whether something changed 
         /// </summary>

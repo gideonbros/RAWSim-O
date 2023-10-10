@@ -13,6 +13,24 @@ namespace RAWSimO.Visualization.Rendering
         /// Contains the already generated brushes in order to recycle them.
         /// </summary>
         private static Dictionary<double, Brush> _recycledBrushes = new Dictionary<double, Brush>();
+        
+        /// <summary>
+        /// Generates or recycles a color indicating the heat of the given value.
+        /// </summary>
+        /// <param name="hue">The hue-value to generate a color for.</param>
+        /// <returns>The color based on the given hue.</returns>
+        public static Color GenerateHueColor(double hue)
+        {
+            hue = Math.Max(hue, 0);
+            hue = Math.Min(hue, 360);
+
+            double r, g, b;
+            ConvertHSVtoRGB(hue, 0.8, 0.97, out r, out g, out b);
+            byte R = (byte)(r * 256);
+            byte G = (byte)(g * 256);
+            byte B = (byte)(b * 256);
+            return Color.FromRgb(R, G, B);
+        }
 
         /// <summary>
         /// Generates or recycles a brush indicating the heat of the given value.
@@ -25,12 +43,7 @@ namespace RAWSimO.Visualization.Rendering
             hue = Math.Min(hue, 360);
             if (!_recycledBrushes.ContainsKey(hue))
             {
-                double r, g, b;
-                ConvertHSVtoRGB(hue, 0.8, 0.97, out r, out g, out b);
-                byte R = (byte)(r * 256);
-                byte G = (byte)(g * 256);
-                byte B = (byte)(b * 256);
-                _recycledBrushes[hue] = new SolidColorBrush(Color.FromRgb(R, G, B));
+                _recycledBrushes[hue] = new SolidColorBrush(GenerateHueColor(hue));
             }
             return _recycledBrushes[hue];
         }

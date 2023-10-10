@@ -64,6 +64,11 @@ namespace RAWSimO.Core.Info
         /// <returns>The capacity reserved.</returns>
         double GetInfoCapacityReserved();
         /// <summary>
+        /// Gets the absolute stock capacity. Capacity of the all pallets above the main one.
+        /// </summary>
+        /// <returns>The stock capacity.</returns>
+        double GetInfoStockCapacity();
+        /// <summary>
         /// Gets information about number of items of the given kind in this pod.
         /// </summary>
         /// <returns>The number of units contained in the pod of the specified item.</returns>

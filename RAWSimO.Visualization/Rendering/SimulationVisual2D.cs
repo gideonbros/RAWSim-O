@@ -778,6 +778,10 @@ namespace RAWSimO.Visualization.Rendering
                         new Size(_transformer.ProjectXLength(_pod.GetInfoHorizontalLength() * 2), _transformer.ProjectYLength(_pod.GetInfoVerticalLength() * 2))));
 
             Fill = Brushes.LightGray;
+            if( pod.GetPodAddress().StartsWith("Label_"))
+            {
+                Fill = Brushes.LightBlue;
+            }
             Stroke = Brushes.Black;
             StrokeThickness = StrokeThicknessReference;
             Cursor = Cursors.Hand;
@@ -798,7 +802,14 @@ namespace RAWSimO.Visualization.Rendering
             else
             {
                 double colorKey = _pod.GetStatusColorKey();
-                if (colorKey == -2) Fill = Brushes.LightGray;
+                if (colorKey == -2)
+                {
+                    Fill = Brushes.LightGray;
+                    if (_pod.GetPodAddress().StartsWith("Label_"))
+                    {
+                        Fill = Brushes.LightBlue;
+                    }
+                }
                 else if (colorKey == -1) Fill = Brushes.Gray;
                 else Fill = ColorManager.GenerateHueBrush(colorKey);
             }

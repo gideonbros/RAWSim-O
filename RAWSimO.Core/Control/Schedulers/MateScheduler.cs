@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using RAWSimO.Toolbox;
 using RAWSimO.Core.IO;
+using RAWSimO.Core.Items;
 using RAWSimO.Core.Bots;
 using RAWSimO.Core.Elements;
 using RAWSimO.Core.Interfaces;
@@ -18,6 +19,11 @@ namespace RAWSimO.Core.Control
     /// </summary>
     public partial class MateScheduler : IUpdateable
     {
+
+        private static string RemoveSufix(string address)
+        {
+            return Order.RemoveSufixFromAddress(address);
+        }
 
         #region Mission control
 
@@ -51,24 +57,40 @@ namespace RAWSimO.Core.Control
             public static Dictionary<string, int> podLocked;
             public static Mutex PodColorMutex = new Mutex();
 
-            public static int GetPodColorKey(string adr)
+            public static int GetPodColorKey(string address)
             {
                 PodColorMutex.WaitOne();
-                int colorKey = podColors[adr];
+                int colorKey = podColors[RemoveSufix(address)];
                 PodColorMutex.ReleaseMutex();
                 return colorKey;
             }
-            public static int GetPodLocked(string adr)
+            public static int GetPodLocked(string address)
             {
                 PodColorMutex.WaitOne();
-                int botLock = podLocked[adr];
+                int botLock = -1;
+                try
+                {
+                    botLock = podLocked[RemoveSufix(address)];
+                }
+                catch (Exception)
+                {
+                    Console.WriteLine(address);
+                }
                 PodColorMutex.ReleaseMutex();
                 return botLock;
             }
 
             public int GetOrderID() { return orderID; }
 
-            public List<string> GetOrderAddresses() { return orderAddresses.ToList(); }
+            public List<string> GetOrderAddresses() 
+            {
+                List<string> addressesWithoutSufix = new List<string>();
+                foreach (string address in orderAddresses)
+                {
+                    addressesWithoutSufix.Add(RemoveSufix(address));
+                }
+                return addressesWithoutSufix; 
+            }
 
             /// <summary>
             /// Returns the status of the item inside the current order.
@@ -91,10 +113,11 @@ namespace RAWSimO.Core.Control
                 // and when Visualization calls, the index is out of range
                 if (i < orderAddresses.Count)
                 {
-                    string adr = orderAddresses[i];
-                    int lockID = GetPodLocked(adr);
+                    string address = orderAddresses[i];
+                    int lockID = GetPodLocked(address);
                     locked = lockID > -1 && lockID == botID;
-                    opened = addresses.Contains(adr);
+                    if (lockID <= -1) Console.WriteLine("TEST");
+                    opened = addresses.Contains(address);
                     mateID = assistances.Count > 0 ? assistances[i].Last.Value : -1;
                     completed = completedAddresses[i];
                 }
@@ -102,21 +125,21 @@ namespace RAWSimO.Core.Control
                 return new Tuple<bool, int, bool, bool>(opened, mateID, completed, locked);
             }
 
-            public static void UpdatePodColor(string adr, int colorKey)
+            private static void UpdatePodColor(string address, int colorKey)
             {
                 PodColorMutex.WaitOne();
-                podColors[adr] = colorKey;
+                podColors[RemoveSufix(address)] = colorKey;
                 PodColorMutex.ReleaseMutex();
             }
-            public static void PodLock(string adr, int botLock)
+            private static void PodLock(string address, int botLock)
             {
                 PodColorMutex.WaitOne();
-                podLocked[adr] = botLock;
+                podLocked[RemoveSufix(address)] = botLock;
                 PodColorMutex.ReleaseMutex();
             }
-            public void UpdatePodLock(string adr, int botLock)
+            public void UpdatePodLock(string address, int botLock)
             {
-                BotOrderInfo.PodLock(adr, botLock);
+                BotOrderInfo.PodLock(address, botLock);
             }
             public void AddPickingAddress(string address)
             {
@@ -125,7 +148,14 @@ namespace RAWSimO.Core.Control
                 assignment[address].AddLast(-1);
                 addresses.AddLast(address);
 
-                addressToIndex.Add(address, orderAddresses.FindIndex(a => a == address));
+                for (int i = 0; i < orderAddresses.Count; i++)
+                {
+                    if (!completedAddresses[i] && orderAddresses[i] == address)
+                    {
+                        addressToIndex.Add(address, i);
+                        break;
+                    }
+                }
                 assistances[addressToIndex[address]].AddLast(-1);
                 //Console.WriteLine("Bot " + this.botID);
                 //Console.WriteLine("ass.: " + String.Join(", ", assignment.Keys.ToList()));
@@ -147,11 +177,10 @@ namespace RAWSimO.Core.Control
             {
                 for (int i = position; i < addresses.Count; ++i)
                 {
-                    string adr = addresses.ElementAt(i);
-                    assignment[adr].AddLast(-1);
-                    assistances[addressToIndex[adr]].AddLast(-1);
+                    assignment[addresses.ElementAt(i)].AddLast(-1);
+                    assistances[addressToIndex[addresses.ElementAt(i)]].AddLast(-1);
 
-                    BotOrderInfo.UpdatePodColor(adr, 0);
+                    BotOrderInfo.UpdatePodColor(addresses.ElementAt(i), 0);
                 }
             }
             public List<Tuple<string, int>> GetAssignmentList()
@@ -160,9 +189,9 @@ namespace RAWSimO.Core.Control
                 ClassMutex.WaitOne();
                 if (addresses.Count > 0)
                 {
-                    foreach (string adr in addresses)
+                    foreach (string address in addresses)
                     {
-                        assignmentList.Add(new Tuple<string, int>(adr, assignment[adr].Last.Value));
+                        assignmentList.Add(new Tuple<string, int>(address, assignment[address].Last.Value));
                     }
                 }
                 else
@@ -178,7 +207,7 @@ namespace RAWSimO.Core.Control
                 ClassMutex.WaitOne();
                 if (addresses.Count > 0)
                 {
-                    firstAssignment = new Tuple<string, int>(addresses.First.Value, assignment[addresses.First.Value].Last.Value);
+                    firstAssignment = new Tuple<string, int>(RemoveSufix(addresses.First.Value), assignment[addresses.First.Value].Last.Value);
                 }
                 else
                 {
@@ -193,22 +222,22 @@ namespace RAWSimO.Core.Control
                 ClassMutex.WaitOne();
                 for (int i = 0; i < orderAddresses.Count; ++i)
                 {
-                    string adr = orderAddresses[i];
+                    string address = orderAddresses[i];
                     bool opened = false, completed = false;
                     int mateID = -1;
-                    if (addresses.Contains(adr))
+                    if (addresses.Contains(address))
                     {
                         opened = true;
-                        mateID = assignment[adr].Last.Value;
+                        mateID = assignment[address].Last.Value;
                         completed = completedAddresses[i];
                     }
-                    statusTabel.Add(new Tuple<string, bool, int, bool>(adr, opened, mateID, completed));
+                    statusTabel.Add(new Tuple<string, bool, int, bool>(address, opened, mateID, completed));
                 }
                 ClassMutex.ReleaseMutex();
                 return statusTabel;
             }
             // removes all addresses after and including the given one
-            public void RemoveAfterAddress(string address)
+            private void RemoveAfterAddress(string address)
             {
                 ClassMutex.WaitOne();
                 while (addresses.Last.Value != address)
@@ -249,12 +278,12 @@ namespace RAWSimO.Core.Control
             public void ClearCurrentLocation()
             {
                 ClassMutex.WaitOne();
-                string adr = addresses.Last.Value;
-                addresses.Remove(adr);
-                assignment.Remove(adr);
-                BotOrderInfo.UpdatePodColor(adr, -1);
-                assistances[addressToIndex[adr]].AddLast(-1);
-                addressToIndex.Remove(adr);
+                string address = addresses.Last.Value;
+                addresses.Remove(address);
+                assignment.Remove(address);
+                BotOrderInfo.UpdatePodColor(address, -1);
+                assistances[addressToIndex[address]].AddLast(-1);
+                addressToIndex.Remove(address);
                 ClassMutex.ReleaseMutex();
             }
 
@@ -262,9 +291,9 @@ namespace RAWSimO.Core.Control
             {
                 ClassMutex.WaitOne();
                 assignment.Clear();
-                foreach (string adr in addresses)
+                foreach (string address in addresses)
                 {
-                    BotOrderInfo.UpdatePodColor(adr, -1);
+                    BotOrderInfo.UpdatePodColor(address, -1);
                 }
                 addresses.Clear();
                 ClassMutex.ReleaseMutex();
@@ -273,16 +302,15 @@ namespace RAWSimO.Core.Control
             {
 
                 ClassMutex.WaitOne();
-                string address = addresses.ElementAt(i);
-                completedAddresses[addressToIndex[address]] = true;
+                completedAddresses[addressToIndex[addresses.ElementAt(i)]] = true;
                 ClassMutex.ReleaseMutex();
             }
             public void RemoveLastAddress()
             {
                 ClassMutex.WaitOne();
-                string adr = addresses.Last.Value;
+                string address = addresses.Last.Value;
                 ClassMutex.ReleaseMutex();
-                RemoveAddress(adr);
+                RemoveAddress(address);
             }
             public void RemoveAddress(string address)
             {
@@ -330,10 +358,10 @@ namespace RAWSimO.Core.Control
                     BotOrderInfo boi = itemTable[k];
                     for (int i = 0; i < boi.orderAddresses.Count; ++i)
                     {
-                        string adr = boi.orderAddresses[i];
-                        int lockID = BotOrderInfo.GetPodLocked(adr);
+                        string address = boi.orderAddresses[i];
+                        int lockID = BotOrderInfo.GetPodLocked(address);
                         bool locked = lockID > -1 && lockID == k;
-                        bool opened = boi.addresses.Contains(adr);
+                        bool opened = boi.addresses.Contains(address);
                         int mateID = boi.assistances.Count > 0 ? boi.assistances[i].Last.Value : -1;
                         bool completed = boi.completedAddresses[i];
 
@@ -345,7 +373,7 @@ namespace RAWSimO.Core.Control
                                 mateIDstr = " ";
                             else mateIDstr = "_";
                         }
-                        order_status_str += String.Format("{0}{2}{1,2}|", adr, mateIDstr, con);
+                        order_status_str += String.Format("{0}{2}{1,2}|", address, mateIDstr, con);
                    }
                    status_list.Add(order_status_str);
                 }
@@ -367,7 +395,7 @@ namespace RAWSimO.Core.Control
             if (currentTask.PodItems.Count <= index || index == -1)
                 return "-----";
 
-            string address = currentTask.PodItems[index].location;
+            string address = currentTask.PodItems[index].GetAddress();
 
             // NOTE: this works partially and only alongside
             // the change in MovableStation GetLocationAfter function
@@ -388,13 +416,13 @@ namespace RAWSimO.Core.Control
             AllMates = new List<MateBot>(Instance.MateBots);
             AvailableMates = new List<MateBot>(Instance.MateBots);
             AssistInfo = new AssistLocations(Instance, this);
-            TimeOfLastSeach = new Dictionary<MateBot, double>();
+            TimeOfLastSearch = new Dictionary<MateBot, double>();
             ZoneEnabled = Instance.SettingConfig.ZonesEnabled;
             ReserveSameAssistLocation = Instance.SettingConfig.ReserveSameAssistLocation;
             ReserveNextAssistLocation = Instance.SettingConfig.ReserveNextAssistLocation;
             foreach (var mate in AvailableMates)
             {
-                TimeOfLastSeach.Add(mate, 0.0);
+                TimeOfLastSearch.Add(mate, 0.0);
             }
             PredictionDepth = Instance.SettingConfig.MateSchedulerPredictionDepth;
 
@@ -408,11 +436,11 @@ namespace RAWSimO.Core.Control
             }
             BotOrderInfo.podColors = new Dictionary<string, int>();
             BotOrderInfo.podLocked = new Dictionary<string, int>();
-            foreach (string adr in Instance.Pods.Select(p => p.Address))
+            foreach (string addr in Instance.Pods.Select(p => p.Address))
             {
-                if (adr == "") continue;
-                BotOrderInfo.podColors.Add(adr, -1);
-                BotOrderInfo.podLocked.Add(adr, -1);
+                if (addr == "") continue;
+                BotOrderInfo.podColors.Add(addr, -1);
+                BotOrderInfo.podLocked.Add(addr, -1);
             }
         }
         /// <summary>
@@ -469,6 +497,20 @@ namespace RAWSimO.Core.Control
                     throw e;
             }
         }
+
+        protected void GetAssignedTask(MateBot mate, out Waypoint bestLocation, out double predictedTime, out Bot bestBot)
+        {
+            predictedTime = 0;
+            bestLocation = null;
+            bestBot = null;
+            Tuple<int, int, string> pa = Instance.Controller.OptimizationClient.schedule.GetNextAssignment(mate.ID);
+            if (pa == null) return;
+            bestLocation = Instance.GetWaypointByID(pa.Item2);
+            bestBot = Instance.GetBotByID(pa.Item1);
+            double mateArrivalTime = Instance.Controller.PathManager.PredictArrivalTime(mate, bestLocation, true);
+            predictedTime = mateArrivalTime;
+        }
+
         /// <summary>
         /// Finds best assist location for a given <paramref name="mate"/>
         /// </summary>
@@ -714,7 +756,7 @@ namespace RAWSimO.Core.Control
         /// <summary>
         /// Holds the last time a search for assist location has been done for a given mate
         /// </summary>
-        protected Dictionary<MateBot, double> TimeOfLastSeach { get; set; }
+        protected Dictionary<MateBot, double> TimeOfLastSearch { get; set; }
         /// <summary>
         /// Time in seconds after which we check if matebot has any closer assistance to give
         /// </summary>
@@ -993,55 +1035,111 @@ namespace RAWSimO.Core.Control
 
                 //if there are no available locations left then we have nothing else to do, exit update 
                 if (AssistInfo.AvailableLocationsCount == 0) return;
-                //find best location for mate with reserved location info
-                FindBestAvailableLocation(mate, out Waypoint location, out double predictedArrivalTime, out Bot newBot);
 
-                //Set time of this search
-                TimeOfLastSeach[mate] = currentTime;
-
-                //if FindBestAvailableLocation failed, continue
-                if (location == null || newBot == null)
-                    continue;
-
-                if (mate.CurrentTask is AssistTask)
+                if (!mate.Instance.SettingConfig.usingOptimizationClient)
                 {
-                    AssistTask currentTask = mate.CurrentTask as AssistTask;
-                    var oldBot = currentTask.BotToAssist;
-                    var oldWP = currentTask.Waypoint;
+                    //find best location for mate with reserved location info
+                    FindBestAvailableLocation(mate, out Waypoint location, out double predictedArrivalTime, out Bot newBot);
 
-                    //if the same bot was chosen
-                    if (oldBot == newBot && (
-                        //if mate is already at the location, ignore
-                        (mate.CurrentWaypoint == location && mate.DestinationWaypoint == null) ||
-                        //or if mate is going to the location, ignore
-                        mate.DestinationWaypoint == location ||
-                        //or if mate was going to assist the same bot, it is trying to switch to a future location
-                        //of the same bot, switching to past locations will happend since AssistInfo[destination]
-                        //will become null
-                        AssistInfo.AssistOrder(newBot, oldWP) <= AssistInfo.AssistOrder(newBot, location)
-                        ))
+                    //Set time of this search
+                    TimeOfLastSearch[mate] = currentTime;
+
+                    //if FindBestAvailableLocation failed, continue
+                    if (location == null || newBot == null)
+                        continue;
+
+                    if (mate.CurrentTask is AssistTask)
                     {
-                        //call OnAssistantAssigned() so that bot can wake up if it is resting
-                        newBot.OnAssistantAssigned();
+                        AssistTask currentTask = mate.CurrentTask as AssistTask;
+                        var oldBot = currentTask.BotToAssist;
+                        var oldWP = currentTask.Waypoint;
+
+                        //if the same bot was chosen
+                        if (oldBot == newBot && (
+                            //if mate is already at the location, ignore
+                            (mate.CurrentWaypoint == location && mate.DestinationWaypoint == null) ||
+                            //or if mate is going to the location, ignore
+                            mate.DestinationWaypoint == location ||
+                            //or if mate was going to assist the same bot, it is trying to switch to a future location
+                            //of the same bot, switching to past locations will happend since AssistInfo[destination]
+                            //will become null
+                            AssistInfo.AssistOrder(newBot, oldWP) <= AssistInfo.AssistOrder(newBot, location)
+                            ))
+                        {
+                            //call OnAssistantAssigned() so that bot can wake up if it is resting
+                            newBot.OnAssistantAssigned();
+                            continue;
+                        }
+                    }
+                    else
+                    {
+                        //mate is going to location different from previous
+                        mate.SwitchesThisAssist++;
+                        if (mate.SwitchesThisAssist >= Instance.SettingConfig.MaxNumberOfMateSwitches) //can be greater due to aborting
+                            AvailableMates.Remove(mate); //this mate will no longer be taken into account until he finishes the given assist
+
+                        //log assignment of mate to bot at location
+                        LogNewAssignemnt(newBot, location, mate, predictedArrivalTime);
+
+                        //create new task and update arrival time
+                        AssistTask task = new AssistTask(Instance, mate, location, newBot);
+                        UpdateArrivalTime(newBot, location, predictedArrivalTime);
+
+                        //assign new task to mate
+                        mate.AssignTask(task);
+                        AssistInfo.AssistantAssigned(newBot, location, mate);
+                    }
+
+                }
+                else
+                {
+                    if (mate.CurrentTask is AssistTask && !Instance.Controller.OptimizationClient.isRecentlyUpdated) continue;
+                    // Fixed assignment using optimization
+                    GetAssignedTask(mate, out Waypoint location, out double predictedArrivalTime, out Bot newBot);
+
+                    //Set time of this search
+                    TimeOfLastSearch[mate] = currentTime;
+
+                    if (location == null || newBot == null)
+                        continue;
+                    else
+                    {
+                        if (mate.CurrentTask is AssistTask && Instance.Controller.OptimizationClient.isRecentlyUpdated)
+                        {
+                            Instance.Controller.OptimizationClient.isRecentlyUpdated = false;
+                            Bot bot = null;
+                            foreach(var botToAssist in AssistInfo.GetBotsAssistedBy(mate))
+                            {
+                                if (botToAssist.Assistant as MateBot == mate)
+                                {
+                                    bot = botToAssist;
+                                    break;
+                                }
+                            }
+                            if (bot != null && bot != newBot)
+                            {
+                                AssistInfo.RemoveAssistanceTo(bot, mate, true);
+                            }
+                        }
+
+                        //log assignment of mate to bot at location
+                        LogNewAssignemnt(newBot, location, mate, predictedArrivalTime);
+                        //create new task and update arrival time
+                        AssistTask taskt = new AssistTask(Instance, mate, location, newBot);
+                        // if a mate was previously assigned to the robot, cancel that assistance
+                        if (newBot.Assistant != null)
+                        {
+                            AssistInfo.RemoveAssistanceTo(newBot, newBot.Assistant as MateBot, true);
+                        }
+                        //UpdateArrivalTime(newBot, location, predictedArrivalTime);
+
+                        //assign new task to mate
+                        mate.AssignTask(taskt);
+                        AssistInfo.AssistantAssigned(newBot, location, mate);
+
                         continue;
                     }
                 }
-
-                //mate is going to location different from previous
-                mate.SwitchesThisAssist++;
-                if (mate.SwitchesThisAssist >= Instance.SettingConfig.MaxNumberOfMateSwitches) //can be greater due to aborting
-                    AvailableMates.Remove(mate); //this mate will no longer be taken into account until he finishes the given assist
-
-                //log assignment of mate to bot at location
-                LogNewAssignemnt(newBot, location, mate, predictedArrivalTime);
-
-                //create new task and update arrival time
-                AssistTask task = new AssistTask(Instance, mate, location, newBot);
-                UpdateArrivalTime(newBot, location, predictedArrivalTime);
-
-                //assign new task to mate
-                mate.AssignTask(task);
-                AssistInfo.AssistantAssigned(newBot, location, mate);
             }
         }
 
@@ -1147,16 +1245,17 @@ namespace RAWSimO.Core.Control
         {
             UnassignedMatesMutex.WaitOne();
             List<MateBot> matesNeedingAssignment = AvailableMates.Where(mate =>
-                    //bot is idle
+                    mate.IsActive &&
+                    (//bot is idle
                     mate.CurrentTask.Type == BotTaskType.None ||
                     mate.CurrentTask.Type == BotTaskType.Rest ||
                     mate.StateQueueCount == 0 ||
                     //bot is moving to assist but enough time has passed so new search will be done
                     ((mate.CurrentBotStateType == BotStateType.MoveToAssist ||
                     mate.CurrentBotStateType == BotStateType.WaitingForStation)
-                    && (currentTime - TimeOfLastSeach[mate] > AssistLocationReoptimizatioinPeriod)) ||
+                    && (currentTime - TimeOfLastSearch[mate] > AssistLocationReoptimizatioinPeriod)) ||
                     // moving to assist bu stuck in block-unblock loop
-                    mate.CurrentBotStateType == BotStateType.MoveToAssist && mate.BlockedLoopFrequencey > 5).ToList();
+                    mate.CurrentBotStateType == BotStateType.MoveToAssist && mate.BlockedLoopFrequencey > 5)).ToList();
             lastUnassignedMates = matesNeedingAssignment;
             UnassignedMatesMutex.ReleaseMutex();
             return matesNeedingAssignment;

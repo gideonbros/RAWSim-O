@@ -326,6 +326,7 @@ namespace RAWSimO.Core.IO
         /// </summary>
         public static readonly List<string> DEFAULT_RESOURCE_DIRS = new List<string>
         {
+            Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location),"..","..","..","..","..", "resources"),
             Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location),"..","..","..","..", "resources"),
             Path.Combine(Path.GetFullPath(Directory.GetCurrentDirectory()), "..", "Resources"),
             Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "Resources"),

@@ -111,7 +111,7 @@ namespace RAWSimO.Core.Control
                 var newBot = mateTuple.Value.Item2;
 
                 //Set time of this search
-                TimeOfLastSeach[mate] = currentTime;
+                TimeOfLastSearch[mate] = currentTime;
 
                 //sanity check
                 if (location == null || newBot == null)

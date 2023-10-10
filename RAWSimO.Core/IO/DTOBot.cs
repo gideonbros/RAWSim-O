@@ -81,10 +81,25 @@ namespace RAWSimO.Core.IO
         [XmlAttribute]
         public int Tier;
         /// <summary>
+        /// Color of the bot.
+        /// </summary>
+        [XmlAttribute]
+        public double BotHue;
+        /// <summary>
         /// The initial zones of robot.
         /// </summary>
         [XmlAttribute]
         public List<string> Zones;
+        /// <summary>
+        /// Is bot currently active in swarm
+        /// </summary>
+        [XmlAttribute]
+        public bool IsActive;
+        /// <summary>
+        /// Is bot used for refilling
+        /// </summary>
+        [XmlAttribute]
+        public bool IsRefilling;
         /// <summary>
         /// Creates a DTO representation of the original object.
         /// </summary>
@@ -104,7 +119,10 @@ namespace RAWSimO.Core.IO
                 Y = value.Y,
                 Radius = value.Radius,
                 Orientation = value.Orientation,
-                Tier = value.Tier.ID
+                Tier = value.Tier.ID,
+                IsActive = value.IsActive,
+                IsRefilling = (value is MovableStation) ? (value as MovableStation).IsRefill : false,
+                BotHue = value.botHue
             };
         }
 
@@ -137,7 +155,11 @@ namespace RAWSimO.Core.IO
                 TurnSpeed,
                 CollisionPenaltyTime,
                 BotType.BotNormal,
-                0, Zones);
+                BotHue,
+                Zones,
+                IsActive,
+                IsRefilling);
+
         }
 
         #endregion

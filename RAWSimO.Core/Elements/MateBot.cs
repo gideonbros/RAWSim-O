@@ -116,7 +116,6 @@ namespace RAWSimO.Core.Elements
         public virtual void OnAssistEnded()
         {
             AssistDuration = double.NaN;
-            StatNumberOfPickups++;
             SaveLastAssistDepth();
         }
         #endregion

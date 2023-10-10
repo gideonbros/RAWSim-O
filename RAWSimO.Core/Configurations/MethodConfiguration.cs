@@ -326,6 +326,22 @@ namespace RAWSimO.Core.Configurations
         Scheduled,
     }
 
+    public enum PalletStandManagerType
+    {
+        /// <summary>
+        /// Uses greedy with euclidean distance
+        /// </summary>
+        EuclideanGreedy,
+        /// <summary>
+        /// Uses original implementation, the greedy one
+        /// </summary>
+        Original,
+        /// <summary>
+        /// Uses AStar as distance algorithm
+        /// </summary>
+        Advanced
+    }
+
     #endregion
 
     #region Root method configuration
@@ -350,6 +366,7 @@ namespace RAWSimO.Core.Configurations
             //OrderBatchingConfig = new RemoteOrderSchedulerConfiguration();
             ReplenishmentBatchingConfig = new SamePodReplenishmentBatchingConfiguration();
             MethodManagementConfig = new NoChangeMethodManagementConfiguration();
+            PalletStandManagerConfig = new AdvancedPalletStandManagerConfiguration();
         }
         /// <summary>
         /// The name of the config.
@@ -391,6 +408,10 @@ namespace RAWSimO.Core.Configurations
         /// The configuration for the meta method manager to use.
         /// </summary>
         public MethodManagementConfiguration MethodManagementConfig;
+        /// <summary>
+        /// The configuration for the pallet stand manager to use.
+        /// </summary>
+        public PalletStandManagerConfiguration PalletStandManagerConfig;
         /// <summary>
         /// Some optional comment tag that will be written to the footprint.
         /// </summary>
@@ -445,6 +466,10 @@ namespace RAWSimO.Core.Configurations
             {
                 throw new ArgumentException("MethodManagementConfig is null. Please initialize MethodManagement Configuration");
             }
+            if (PalletStandManagerConfig == null)
+            {
+                throw new ArgumentException("PalletStandManagerConfig is null. Please initialize MethodManagement Configuration");
+            }
             return
                 "PP" + PathPlanningConfig.GetMethodType() + "-" +
                 "TA" + TaskAllocationConfig.GetMethodType() + "-" +
@@ -454,7 +479,8 @@ namespace RAWSimO.Core.Configurations
                 "RP" + RepositioningConfig.GetMethodType() + "-" +
                 "OB" + OrderBatchingConfig.GetMethodType() + "-" +
                 "RB" + ReplenishmentBatchingConfig.GetMethodType() + "-" +
-                "MM" + MethodManagementConfig.GetMethodType();
+                "MM" + MethodManagementConfig.GetMethodType() + "-" +
+                "PSM" + PalletStandManagerConfig.GetMethodType();
         }
 
         /// <summary>
@@ -755,6 +781,21 @@ namespace RAWSimO.Core.Configurations
             errorMessage = "";
             return true;
         }
+    }
+
+    /// <summary>
+    /// Base class for the order batching configuration.
+    /// </summary>
+    [XmlInclude(typeof(EuclideanGreedyPalletStandManagerConfiguration))]
+    [XmlInclude(typeof(OriginalPalletStandManagerConfiguration))]
+    [XmlInclude(typeof(AdvancedPalletStandManagerConfiguration))]
+    public abstract class PalletStandManagerConfiguration : ControllerConfigurationBase
+    {
+        /// <summary>
+        /// Returns the type of the corresponding method this configuration belongs to.
+        /// </summary>
+        /// <returns>The type of the method.</returns>
+        public abstract PalletStandManagerType GetMethodType();
     }
 
     #endregion

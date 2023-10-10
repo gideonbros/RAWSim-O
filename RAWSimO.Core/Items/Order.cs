@@ -20,14 +20,41 @@ namespace RAWSimO.Core.Items
 
         public static void ResetIDCounter() { _idCounter = 0; }
 
+        /// <summary>
+        /// Can be any symbol. Most beautiful was '-'. Feel free to change if needed.
+        /// </summary>
+        private static string _sufixSeparator = "-";
+
+        public static List<string> AddHashSufixToAddresses(List<string> allAddresses)
+        {
+            List<string> addresses = new List<string>();
+            for (int i = 0; i < allAddresses.Count; i++)
+            {
+                addresses.Add(allAddresses[i] + _sufixSeparator + i);
+            }
+
+            return addresses;
+        }
+
+        public static string RemoveSufixFromAddress(string address)
+        {
+            int index = address.LastIndexOf(_sufixSeparator);
+            if(index == -1)
+            {
+                return address;
+            }
+            return address.Substring(0, index);
+        }
+
         #region Constructors
 
         /// <summary>
         /// Creates a new instance of the order.
         /// </summary>
-        internal Order(Waypoint dropWaypoint = null)
+        internal Order(Waypoint dropWaypoint = null, int output_id = -1)
         {
             DropWaypoint = dropWaypoint;
+            OutputID = output_id;
             ID = _idCounter++;
         }
 
@@ -80,7 +107,7 @@ namespace RAWSimO.Core.Items
         /// <summary>
         /// Assist times for each Item description
         /// </summary>
-        public Dictionary<ItemDescription, double> _assistTimes = new Dictionary<ItemDescription, double>();
+        private Dictionary<ItemDescription, double> _assistTimes = new Dictionary<ItemDescription, double>();
         /// <summary>
         /// Order ID.
         /// </summary>
@@ -104,11 +131,19 @@ namespace RAWSimO.Core.Items
         /// List of times needed for each item
         /// </summary>
         public Dictionary<ItemDescription, double> Times { get { return _assistTimes; } }
+        /// <summary>
+        /// List of quantities needed for each item
+        /// </summary>
+        public Dictionary<ItemDescription, int> Quantities { get { return _quantities; } }
 
         /// <summary>
         /// The time stamp at which the order should be completed.
         /// </summary>
         public double DueTime { get; set; } = double.PositiveInfinity;
+        /// <summary>
+        /// Defines on whick output to drop order, -1 for arbitrarily
+        /// </summary>
+        public int OutputID { get; set; } = -1;
         /// <summary>
         /// Item drop waypoint
         /// </summary>
@@ -125,6 +160,7 @@ namespace RAWSimO.Core.Items
         /// Gets palletID on which item is put on - stacked pallets version
         /// </summary>
         public Dictionary<Waypoint, int> PalletIDs { get { return _palletIDs; } }
+
         /// <summary>
         /// Ordered list of items according to some initial sorting.
         /// This won't necessarily be the final order.
@@ -184,7 +220,12 @@ namespace RAWSimO.Core.Items
                 _assistTimes[itemDescription] = times;
             else
                 _assistTimes.Add(itemDescription, times);
-            _palletIDs.Add(itemDescription.Instance.GetWaypointFromAddress((itemDescription as SimpleItemDescription).GetLocation()), palletID);
+
+            Waypoint wp = itemDescription.Instance.GetWaypointFromAddress((itemDescription as SimpleItemDescription).GetAddress());
+            if (!_palletIDs.ContainsKey(wp))
+            {
+                _palletIDs.Add(wp, palletID);
+            }
             OrderedItemList.Add(itemDescription);
         }
 
@@ -201,8 +242,14 @@ namespace RAWSimO.Core.Items
                 _locationStatus[item] = 3;
                 return true;
             }
+            else if (!item.Instance.SettingConfig.RefillingEnabled)
+            {
+                _servedQuantities[item]++;
+                _locationStatus[item] = 3;
+                return true;
+            }
             else
-                return false;
+                throw new Exception("ERROR: could not complete location");
         }
         /// <summary>
         /// Adds the request to pick the item to the order. This can be used by other components to see the particular requests' status.
@@ -231,12 +278,41 @@ namespace RAWSimO.Core.Items
         /// <returns>Status of the item (-1, 0, 1, 2, 3) or -2 if it doesn't exist</returns>
         public int GetLocationStatus(ItemDescription item) { return _locationStatus.ContainsKey(item) ? _locationStatus[item] : -2; }
 
-        public List<string> GetLocationAddresses() { return _locationStatus.Keys.Select(x => (x as SimpleItemDescription).GetLocation()).ToList(); }
+        public List<SimpleItemDescription> GetLocationAddresses() { return _locationStatus.Keys.Select(x => (x as SimpleItemDescription)).ToList(); }
+        public List<double> GetLocationTimes()
+        {
+            List<SimpleItemDescription> locationAddresses = GetLocationAddresses();
+            List<double> locationTimes = locationAddresses.Select(sid => Times[sid]).ToList();
+            return locationTimes;
+        }
+
         /// <summary>
         /// Get all addresses that are of status -1, 0 or 1.
         /// </summary>
         /// <returns></returns>
-        public List<string> GetOpenLocationAddresses() { return _locationStatus.Keys.Where(x => _locationStatus[x] < 2).Select(x => (x as SimpleItemDescription).GetLocation()).ToList(); }
+        public List<SimpleItemDescription> GetOpenLocationAddresses()
+        {
+            //return _locationStatus.Keys.Where(x => _locationStatus[x] < 2).Select(x => (x as SimpleItemDescription).GetLocation()).ToList();
+            return OrderedItemList.Where(itdes => _locationStatus[itdes] < 2).Select(itdes => (itdes as SimpleItemDescription)).ToList(); 
+        }
+        public List<double> GetOpenLocationTimes()
+        {
+            List<SimpleItemDescription> openLocationAddresses = GetOpenLocationAddresses();
+            List<double> openLocationTimes = openLocationAddresses.Select(sid => Times[sid]).ToList();
+            return openLocationTimes;
+        }
+
+        public void ReorderItemList(List<string> sortedItemList)
+        {
+            OrderedItemList.Sort(
+                (ItemDescription a, ItemDescription b) =>
+                {
+                    int ia = sortedItemList.FindIndex(adr => adr == (a as SimpleItemDescription).GetAddress());
+                    int ib = sortedItemList.FindIndex(adr => adr == (b as SimpleItemDescription).GetAddress());
+                    return ia > ib ? 1 : ia < ib ? -1 : 0;
+                }
+                );
+        }
 
 
         /// <summary>
@@ -313,5 +389,15 @@ namespace RAWSimO.Core.Items
 
         public int GetAssignedMovableStationID() { return movableStationID;  }
         public double GetAssignedMovableStationHue() { return movableStationHue; }
+
+        /// <summary>
+        /// Gets Item by Address.
+        /// </summary>
+        /// <param name="address">Address of the item.</param>
+        /// <returns></returns>
+        public Items.SimpleItemDescription GetItemByAddress(string address) 
+        { 
+            return OrderedItemList.Where(it => (it as Items.SimpleItemDescription).GetAddress() == address).First() as Items.SimpleItemDescription; 
+        }
     }
 }

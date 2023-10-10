@@ -1,4 +1,5 @@
 ﻿using RAWSimO.Core.Info;
+using RAWSimO.Core.Elements;
 using RAWSimO.Toolbox;
 using System;
 using System.Collections.Generic;
@@ -285,9 +286,10 @@ namespace RAWSimO.Visualization.Rendering
 
                 botOrder[bot] = -1;
 
+                Brush back = ColorManager.GenerateHueBrush(bot.GetInfoHue());
+                Brush fore = Brushes.Black;
                 // add row names
-                TextBlock rowName = CreateTextBlock("Bot " + bot.GetInfoID().ToString(),
-                    ColorManager.GenerateHueBrush(bot.GetInfoHue()), Brushes.Black, 6);
+                TextBlock rowName = CreateTextBlock("Bot " + bot.GetInfoID().ToString(), back, fore, 6);
                 tableRows[bot].Children.Add(rowName);
 
                 // add state in the current row
@@ -318,10 +320,16 @@ namespace RAWSimO.Visualization.Rendering
             foreach (var bot in _instanceInfo.GetInfoMovableStations())
             {
                 robotStates[bot].Text = bot.GetInfoState() == null ? ("None").PadRight(15).Substring(0, 15) : bot.GetInfoState().PadRight(15).Substring(0, 15);
-                
                 robotCurrentRowCol[bot].Text = bot.GetInfoCurrentWaypoint() == null ? ("None").PadRight(15).Substring(0, 15) : bot.GetInfoCurrentWaypoint().GetInfoRowColumn().PadRight(15).Substring(0, 15);
                 robotTargetRowCol[bot].Text = bot.GetInfoDestinationWaypoint() == null ? ("None").PadRight(15).Substring(0, 15) : bot.GetInfoDestinationWaypoint().GetInfoRowColumn().PadRight(15).Substring(0, 15);
-                robotGoalRowCol[bot].Text = bot.GetInfoGoalWaypoint() == null ? ("None").PadRight(15).Substring(0, 15) : bot.GetInfoGoalWaypoint().GetInfoRowColumn().PadRight(15).Substring(0, 15);
+                try
+                {
+                    robotGoalRowCol[bot].Text = bot.GetInfoGoalWaypoint() == null ? ("None").PadRight(15).Substring(0, 15) : bot.GetInfoGoalWaypoint().GetInfoRowColumn().PadRight(15).Substring(0, 15);
+                }
+                catch (NullReferenceException) //unknown crash
+                {
+                    Console.WriteLine(String.Format("NullReferenceException: Bot {0} with info goal waypoint.", bot.GetInfoID()));
+                }
 
                 Tuple<string, int> addressAndMate = bot.GetCurrentItemAddressAndMate();
 
@@ -370,8 +378,10 @@ namespace RAWSimO.Visualization.Rendering
                 botOrder[bot] = -1;
 
                 // add row names
+                Brush back = ColorManager.GenerateHueBrush(bot.GetInfoHue());
+                Brush fore = Brushes.Black;
                 TextBlock rowName = CreateTextBlock("Bot " + bot.GetInfoID().ToString(),
-                    ColorManager.GenerateHueBrush(bot.GetInfoHue()), Brushes.Black, 6);
+                    back, fore, 6);
                 tableRows[bot].Children.Add(rowName);
 
             }
@@ -394,10 +404,27 @@ namespace RAWSimO.Visualization.Rendering
                 // if bot has order
                 int newOrderID = _instaceInfo.GetStatusTableOrderID(bot.GetInfoID());
                 int oldOrderID = botOrder[bot];
-                if (newOrderID != oldOrderID) 
+                if(bot is MovableStation && (bot as MovableStation).IsRefill)
+                {
+                    MovableStation MS = (bot as MovableStation);
+                    
+                    if(MS.CurrentInfoStateName == Core.Bots.BotStateType.RefillItemState.ToString() && tableRows[bot].Children.Count == 1)
+                    {
+                        if(MS.Address == null) // did not update yet
+                        {
+                            return;
+                        }
+                        TextBlock rowName = CreateTextBlock("Refilling: " + MS.Address, Brushes.White, Brushes.Black, 20);
+                        tableRows[bot].Children.Add(rowName);
+                    } else if(MS.CurrentInfoStateName != Core.Bots.BotStateType.RefillItemState.ToString() && tableRows[bot].Children.Count == 2)
+                    {
+                        tableRows[bot].Children.RemoveAt(1);
+                    }
+                    
+                } else if (newOrderID != oldOrderID) 
                 {
                     // clear previos values
-                    foreach(var am in order[oldOrderID])
+                    foreach (var am in order[oldOrderID])
                     {
                         tableRows[bot].Children.Remove(am.Item2);
                         tableRows[bot].Children.Remove(am.Item1);
@@ -428,12 +455,27 @@ namespace RAWSimO.Visualization.Rendering
                 }    
                 else
                 {
+                    List<string> addresses = _instaceInfo.GetStatusTableOrderAddresses(bot.GetInfoID());
+                    if (botOrder[bot] >= 0 && addresses.Count > order[botOrder[bot]].Count)
+                    {
+                        for (int i = order[botOrder[bot]].Count; i < addresses.Count; ++i)
+                        {
+                            order[botOrder[bot]].Add(
+                                new Tuple<TextBlock, TextBlock>(
+                                    CreateTextBlock(addresses[i], Brushes.White, Brushes.Black, 5),
+                                    CreateTextBlock("-1", Brushes.LightGray, Brushes.Black, 2)
+                                )
+                            );
+                            tableRows[bot].Children.Add(order[botOrder[bot]][i].Item1);
+                            tableRows[bot].Children.Add(order[botOrder[bot]][i].Item2);
+                        }
+                    }
                     for (int i = 0; i < order[botOrder[bot]].Count; ++i)
                     {
                         Tuple<bool, int, bool, bool> info = _instaceInfo.GetStatusTableInfoOnItem(bot.GetInfoID(), i);
                         bool opened = info.Item1;
-                        bool completed = info.Item3;
                         int mateID = info.Item2;
+                        bool completed = info.Item3;
                         bool locked = info.Item4;
                         order[botOrder[bot]][i].Item2.Text = mateID.ToString().PadLeft(2);
 
@@ -543,7 +585,7 @@ namespace RAWSimO.Visualization.Rendering
                                 ISimpleItemDescriptionInfo itemDescription = position as ISimpleItemDescriptionInfo;
                                 positionBlock.Background = Brushes.White;
                                 positionBlock.Foreground = Brushes.Gray;
-                                positionBlock.Text = itemDescription.GetLocation();
+                                positionBlock.Text = itemDescription.GetAddressWithoutSufix();
                             }
                             else
                             {
@@ -593,7 +635,7 @@ namespace RAWSimO.Visualization.Rendering
                             _botControls[order].Text = ("Bot " + order.GetAssignedMovableStationID().ToString()).PadLeft(4);
                             _botControls[order].Background = ColorManager.GenerateHueBrush(order.GetAssignedMovableStationHue());
                             ISimpleItemDescriptionInfo itemDescription = position as ISimpleItemDescriptionInfo;
-                            _itemControls[order][position].Text = itemDescription.GetLocation();
+                            _itemControls[order][position].Text = itemDescription.GetAddressWithoutSufix();
                         }
                         else
                         {
@@ -692,7 +734,7 @@ namespace RAWSimO.Visualization.Rendering
                                 ISimpleItemDescriptionInfo itemDescription = position as ISimpleItemDescriptionInfo;
                                 positionBlock.Background = Brushes.White;
                                 positionBlock.Foreground = Brushes.Black;
-                                positionBlock.Text = itemDescription.GetLocation();
+                                positionBlock.Text = itemDescription.GetAddressWithoutSufix();
                             }
                             else
                             {

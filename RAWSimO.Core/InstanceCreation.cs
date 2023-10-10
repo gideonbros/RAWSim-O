@@ -257,17 +257,18 @@ namespace RAWSimO.Core
         /// <param name="maxVelocity">The maximal velocity in m/s.</param>
         /// <param name="turnSpeed">The time it takes the bot to take a full turn in s.</param>
         /// <param name="collisionPenaltyTime">The penalty time for a collision in s.</param>
+        /// <param name="isRefill">If robot is used for refilling of items</param>
         /// <returns>The newly created bot.</returns>
         public Bot CreateBot(int id, Tier tier, double x, double y, double radius, double orientation, 
             double podTransferTime, double maxAcceleration, double maxDeceleration, double maxVelocity, double turnSpeed, 
-            double collisionPenaltyTime, BotType type, double hue, List<string> zones)
+            double collisionPenaltyTime, BotType type, double hue, List<string> zones, bool isActive, bool isRefill)
         {
             // Init
             Bot bot = null;
             MovableStation ms = null;
             MateBot mb = null;
             if (type == BotType.MovableStation) {
-                ms = new MovableStation(id, this, radius, maxAcceleration, maxDeceleration, maxVelocity, turnSpeed, collisionPenaltyTime, x, y);
+                ms = new MovableStation(id, this, radius, maxAcceleration, maxDeceleration, maxVelocity, turnSpeed, collisionPenaltyTime, x, y, isRefill);
                 bot = ms;
             }
             else if (type == BotType.MateBot)
@@ -310,6 +311,7 @@ namespace RAWSimO.Core
             bot.Orientation = orientation;
             bot.botHue = hue;
             bot.Zones = zones;
+            bot.IsActive = isActive;
 
             if (bot is BotHazard)
             {
@@ -392,14 +394,18 @@ namespace RAWSimO.Core
         /// <param name="radius">The radius of the pod.</param>
         /// <param name="orientation">The initial orientation of the pod.</param>
         /// <param name="capacity">The capacity of the pod.</param>
+        /// <param name="address">The address of the pod.</param>
         /// <returns>The newly created pod.</returns>
-        public Pod CreatePod(int id, Tier tier, double x, double y, double radius, double horizontal_length, double vertical_length, double orientation, double capacity)
+        public Pod CreatePod(int id, Tier tier, double x, double y, double radius, double horizontal_length, 
+            double vertical_length, double orientation, double capacity, string address)
         {
             // Consider override values
             if (SettingConfig.OverrideConfig != null && SettingConfig.OverrideConfig.OverridePodCapacity)
                 capacity = SettingConfig.OverrideConfig.OverridePodCapacityValue;
             // Create the pod
-            Pod pod = new Pod(this) { ID = id, Tier = tier, Radius = radius, HorizontalLength = horizontal_length, VerticalLength = vertical_length, X = x, Y = y, Orientation = orientation, Capacity = capacity };
+            Pod pod = new Pod(this) { ID = id, Tier = tier, Radius = radius, 
+                HorizontalLength = horizontal_length, VerticalLength = vertical_length, X = x, Y = y, 
+                Orientation = orientation, Capacity = capacity, Address = address };
             Pods.Add(pod);
             tier.AddPod(pod);
             _idToPods[pod.ID] = pod;
@@ -425,8 +431,26 @@ namespace RAWSimO.Core
             // Consider override values
             if (SettingConfig.OverrideConfig != null && SettingConfig.OverrideConfig.OverridePodCapacity)
                 capacity = SettingConfig.OverrideConfig.OverridePodCapacityValue;
+            const double kNumberOfInitialPalletsInStock = 6;
             // Create the pod
-            Pod pod = new Pod(this) { Zone = waypoint.Zone, Address = waypoint.Address, ID = id, Tier = tier, Radius = radius, HorizontalLength = horizontal_length, VerticalLength = vertical_length, X = waypoint.X, Y = waypoint.Y, Orientation = orientation, Capacity = capacity, Waypoint = waypoint };
+            Pod pod = new Pod(this)
+            {
+                Zone = waypoint.Zone,
+                Address = waypoint.Address,
+                ID = id,
+                Tier = tier,
+                Radius = radius,
+                HorizontalLength = horizontal_length,
+                VerticalLength = vertical_length,
+                X = waypoint.X,
+                Y = waypoint.Y,
+                Orientation = orientation,
+                Capacity = capacity,
+                CapacityInUse = capacity,
+                StockCapacity = kNumberOfInitialPalletsInStock * capacity,
+                IsRefilling = false,
+                Waypoint = waypoint
+            };
             Pods.Add(pod);
             tier.AddPod(pod);
             _idToPods[pod.ID] = pod;
@@ -1085,7 +1109,7 @@ namespace RAWSimO.Core
 
             {
                 var writer = new StreamWriter($"{this.CreatedAtString}.seed");
-                writer.WriteLine(this.Randomizer.Seed());
+                writer.WriteLine(this.Randomizer?.Seed() ?? 0);
                 writer.Close();
             }
         }

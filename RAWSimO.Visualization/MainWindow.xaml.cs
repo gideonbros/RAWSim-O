@@ -1,4 +1,5 @@
 ﻿using RAWSimO.Core;
+using RAWSimO.Core.Bots;
 using RAWSimO.Core.Generator;
 using RAWSimO.Core.Info;
 using RAWSimO.Core.Interfaces;
@@ -37,6 +38,7 @@ using RAWSimO.Core.Remote;
 using RAWSimO.CommFramework;
 using RAWSimO.Core.Statistics;
 using RAWSimO.DataPreparation;
+using RAWSimO.Toolbox;
 
 namespace RAWSimO.Visualization
 {
@@ -580,10 +582,35 @@ namespace RAWSimO.Visualization
                 // Remove any possible pause-marker
                 _paused = false;
                 //write statistics
-                if (CheckBoxWriteStatistics.IsChecked == true && Directory.Exists(TextStatisicsOutputFolder.Text))
+                if (!Directory.Exists(_instance.SettingConfig.StatisticsSummaryDirectory))
+                    Directory.CreateDirectory(_instance.SettingConfig.StatisticsSummaryDirectory);
+
+                if (CheckBoxWriteStatistics.IsChecked == true)
                 {
-                    _instance.SettingConfig.StatisticsDirectory = TextStatisicsOutputFolder.Text;
+                    _instance.SettingConfig.StatisticsDirectory = _instance.SettingConfig.StatisticsSummaryDirectory + "\\heatmap";
+                    if (!Directory.Exists(_instance.SettingConfig.StatisticsDirectory))
+                    {
+                        Directory.CreateDirectory(_instance.SettingConfig.StatisticsDirectory);
+                    } else
+                    {
+                        // If something exists, we should clear the statistics folder.
+                        // Problem is that the data will be appended, so we need to clear recent data.
+                        foreach (string file in Directory.GetFiles(_instance.SettingConfig.StatisticsDirectory))
+                        {
+                            File.Delete(file);
+                        }
+                    }
                     _instance.WriteStatistics();
+
+                    // Save instance document
+                    string filename = _instance.SettingConfig.StatisticsDirectory + "\\" + _instance.GetMetaInfoBasedInstanceName() + ".xinst";
+                    _instance.Name = System.IO.Path.GetFileNameWithoutExtension(filename);
+                    InstanceIO.WriteInstance(filename, _instance);
+
+                    // Save it
+                    filename = _instance.SettingConfig.StatisticsDirectory + "\\" + _instance.GetMetaInfoBasedInstanceName() + ".xsett";
+                    _baseConfiguration.Name = System.IO.Path.GetFileNameWithoutExtension(filename);
+                    InstanceIO.WriteSetting(filename, _baseConfiguration);
                 }
                 
                 _instance.Controller.StatisticsManager.WriteStatisticsSummary(_instance.SettingConfig.StatisticsSummaryFile);
@@ -799,7 +826,9 @@ namespace RAWSimO.Visualization
         {
             // overrides Fixed Inventory Configuration path to order file
             _baseConfiguration.InventoryConfiguration.FixedInventoryConfiguration.OrderFile = _layoutConfig.warehouse.GetOrderFilePath();
+            _baseConfiguration.InventoryConfiguration.FixedInventoryConfiguration.RefillingFile = _layoutConfig.warehouse.GetRefillingFilePath();
             _baseConfiguration.InventoryConfiguration.UseOrderBatching = _layoutConfig.warehouse.UseOrderBatching();
+            _baseConfiguration.InventoryConfiguration.InitialBatchSize = _layoutConfig.warehouse.init_batch_size;
             _baseConfiguration.InventoryConfiguration.AverageNumberOfOrders = _layoutConfig.warehouse.avg_batch_size;
             _baseConfiguration.InventoryConfiguration.BatchingTimeInterval = _layoutConfig.warehouse.batch_time_interval;
             _baseConfiguration.InventoryConfiguration.UsePoissonBatching = _layoutConfig.warehouse.poisson;
@@ -1123,6 +1152,8 @@ namespace RAWSimO.Visualization
 
         private void ButtonSnapshot_Click(object sender, RoutedEventArgs e)
         {
+            _snapshotDir = _instance.SettingConfig.StatisticsSummaryDirectory + "\\snapshots";
+            
             if (!Directory.Exists(_snapshotDir))
                 Directory.CreateDirectory(_snapshotDir);
             if (_viewMode == ViewMode.View2D)
@@ -1649,6 +1680,10 @@ namespace RAWSimO.Visualization
         /// </summary>
         private string _heatMapDataFile = null;
         /// <summary>
+        /// The config for which the heat data shall be visualized.
+        /// </summary>
+        private string _heatMapConfigFile = null;
+        /// <summary>
         /// The index of the sub heat information.
         /// </summary>
         private int _heatMapSubDataIndex = 0;
@@ -1680,6 +1715,16 @@ namespace RAWSimO.Visualization
                 // Save file path (for rendering)
                 _heatMapInstanceFile = instanceDialog.FileName;
                 TextBlockHeatInstance.Text = "Instance: " + System.IO.Path.GetFileName(_heatMapInstanceFile);
+                if (!string.IsNullOrWhiteSpace(_heatMapInstanceFile) && File.Exists(_heatMapInstanceFile))
+                {
+                    // Read and draw instance
+                    ReadInstanceForHeatmapRendering();
+                    TextBoxHeatTimeWindowLength.Text = ((int)_instance.SettingConfig.StatisticsSummaryOutputFrequency * 60).ToString(); // convert to seconds
+                    SliderMinVelocityThreshold.Maximum = _instance.SettingConfig.StatVelocityCutoff;
+                    SliderMinVelocityThreshold.Value = _instance.SettingConfig.StatVelocityCutoff;
+                    SliderMaxVelocityThreshold.Maximum = _instance.SettingConfig.StatVelocityCutoff;
+                    SliderMaxVelocityThreshold.Value = _instance.SettingConfig.StatVelocityCutoff;
+                }
             }
         }
 
@@ -1716,6 +1761,28 @@ namespace RAWSimO.Visualization
             }
         }
 
+        private void ButtonLoadHeatConfig_Click(object sender, RoutedEventArgs e)
+        {
+            // Create an instance of the open file dialog box.
+            OpenFileDialog instanceDialog = new OpenFileDialog();
+
+            // Set filter options and filter index.
+            instanceDialog.Filter = "XSETT Files (.xsett)|*.xsett";
+            instanceDialog.FilterIndex = 1;
+            instanceDialog.Multiselect = false;
+
+            // Call the ShowDialog method to show the dialog box.
+            bool? instClick = instanceDialog.ShowDialog();
+
+            // Process input if the user clicked OK.
+            if (instClick == true)
+            {
+                // Save file path (for rendering)
+                _heatMapConfigFile = instanceDialog.FileName;
+                TextBlockHeatConfig.Text = "Config: " + System.IO.Path.GetFileName(_heatMapConfigFile);
+            }
+        }
+
         private void ButtonHeatJustDraw_Click(object sender, RoutedEventArgs e)
         {
             if (!string.IsNullOrWhiteSpace(_heatMapInstanceFile) && File.Exists(_heatMapInstanceFile))
@@ -1733,13 +1800,18 @@ namespace RAWSimO.Visualization
         {
             if (File.Exists(_heatMapInstanceFile) && File.Exists(_heatMapDataFile))
             {
+                if (_instance != null)
+                {
+                    _snapshotDir = _instance.SettingConfig.StatisticsSummaryDirectory + "\\snapshots";
+                }
                 // Read instance
                 ReadInstanceForHeatmapRendering();
                 // Start rendering
                 HeatMapRendererConfiguration config = ParseHeatmapConfiguration();
                 config.DataFile = _heatMapDataFile;
                 config.DataIndex = _heatMapSubDataIndex;
-                RenderHeatmap(config, true);
+                config.DirectorySaveLocation = _snapshotDir;
+                RenderHeatmap(config, false);
             }
             else
             {
@@ -1829,8 +1901,8 @@ namespace RAWSimO.Visualization
                                 InitVisuals();
                                 // Reset the view
                                 ResetView();
-                                // Init the renderer
-                                _heatmapRenderer = new HeatMapRenderer(config);
+                                // Init the renderer with radius multiplier which is used to reduce the size of visualization marker.
+                                _heatmapRenderer = new HeatMapRenderer(config, _instance, SliderRadiusMultiplier.Value);
                             });
                             // Render the heatmap
                             _heatmapRenderer.RenderSync();
@@ -1857,8 +1929,59 @@ namespace RAWSimO.Visualization
             }
         }
 
+        /// <summary>
+        /// Used for processing screenshot of the time window. The time window with lower and upper bounds.
+        /// </summary>
+        /// <param name="config">HeatMapRendererConfiguration</param>
+        /// <param name="lowerBoundTimeWindow">Lower bound of the time window.</param>
+        /// <param name="upperBoundTimeWindow">Upper bound of the time window.</param>
+        /// <param name="botID">Robot's id.</param>
+        private void processScreenshot(HeatMapRendererConfiguration config, double lowerBoundTimeWindow, double upperBoundTimeWindow, int botID = -1)
+        {
+            // saves screenshot
+            if (config.VisualizePickedItems || config.VisualizeOrders)
+            {
+                _heatmapRenderer.BuildVisualizations();
+            } else
+            {
+                config.FileName = lowerBoundTimeWindow.ToString() + "-" + upperBoundTimeWindow;
+                _heatmapRenderer.BuildHeatmap();
+            }
+            if (_viewMode == ViewMode.View2D && _animationControl2D != null)
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    if (!Directory.Exists(_snapshotDir))
+                        Directory.CreateDirectory(_snapshotDir);
+
+                    int day = TimeSpan.FromSeconds(lowerBoundTimeWindow).Days;
+                    int hour = TimeSpan.FromSeconds(lowerBoundTimeWindow).Hours;
+                    int minute = TimeSpan.FromSeconds(lowerBoundTimeWindow).Minutes;
+                    _animationControl2D.TakeSnapshot(_snapshotDir, (botID > -1 ? "bot" + botID + "-" : "") + lowerBoundTimeWindow.ToString() + "-" + upperBoundTimeWindow);
+                });
+
+                _heatmapRenderer.RemoveLastChildInCanvas();
+            }
+            else
+            {
+                _heatmapRenderer.RemoveLastChildInCanvas();
+                MessageBox.Show("Heatmaps can only be generated in 2D view!", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            // Clear the renderer
+            _heatmapRenderer.Clear();
+        }
+
         private void ButtonHeatDrawTimeWindows_Click(object sender, RoutedEventArgs e)
         {
+            if (_instance != null)
+            {
+                _snapshotDir = _instance.SettingConfig.StatisticsSummaryDirectory + "\\snapshots" + "\\" + DateTime.Now.ToString("yyyy_MM_dd_hh_mm_ss");
+            }
+            if (!Directory.Exists(_snapshotDir))
+                Directory.CreateDirectory(_snapshotDir);
+
             if (File.Exists(_heatMapInstanceFile) && File.Exists(_heatMapDataFile))
             {
                 // Read instance
@@ -1867,79 +1990,91 @@ namespace RAWSimO.Visualization
                 HeatMapRendererConfiguration config = ParseHeatmapConfiguration();
                 config.DataFile = _heatMapDataFile;
                 config.DataIndex = _heatMapSubDataIndex;
+                config.DirectorySaveLocation = _snapshotDir;
                 config.FinishedCallback = null;
 
                 double stepLength;
-                try { stepLength = double.Parse(TextBoxHeatTimeWindowLength.Text, IOConstants.FORMATTER); }
+                try
+                { stepLength = double.Parse(TextBoxHeatTimeWindowLength.Text, IOConstants.FORMATTER); }
                 catch (FormatException) { MessageBox.Show("Cannot parse time-window length!", "Error", MessageBoxButton.OK, MessageBoxImage.Error); return; }
-                stepLength = Math.Max(SimulationObserver.STEP_LENGTH_POSITION_POLL * 5, stepLength);
+                stepLength = Math.Max(SimulationObserver.STEP_LENGTH_POSITION_POLL * 5, stepLength); // At least 5 data points                
                 // --> Start rendering
                 // Disable buttons
                 DisableButtons();
-                // Asynchronously execute
-                ThreadPool.QueueUserWorkItem((object unused) =>
-                {
-                    // --> Generate all heatmaps
-                    bool success; double currentFilterLow = -stepLength; double currentFilterHigh = 0;
-                    do
-                    {
-                        // Log
-                        LogLine("Generating heatmap for time-window: " + currentFilterLow.ToString(IOConstants.FORMATTER) + " -> " + currentFilterHigh.ToString(IOConstants.FORMATTER));
-                        // Set time window
-                        config.InitialBotPositions = currentFilterLow < 0 ? _heatBotStartingPositions : null;
-                        config.DataTimeFilterLow = currentFilterLow;
-                        config.DataTimeFilterHigh = currentFilterHigh;
-                        // Render heatmap
-                        Dispatcher.Invoke(() =>
-                        {
-                            // Show the instance
-                            InitVisuals();
-                            // Reset the view
-                            ResetView();
-                            // Init the renderer
-                            _heatmapRenderer = new HeatMapRenderer(config);
-                        });
-                        // Render the heatmap
-                        success = _heatmapRenderer.RenderSync();
-                        // Wait a short time for the GUI to update
-                        Thread.Sleep(5000);
-                        // Save screenshot
-                        if (success)
-                        {
-                            if (_viewMode == ViewMode.View2D && _animationControl2D != null)
-                            {
-                                Dispatcher.Invoke(() =>
-                                {
-                                    if (!Directory.Exists(_snapshotDir))
-                                        Directory.CreateDirectory(_snapshotDir);
+                // Show the instance
+                InitVisuals();
+                // Reset the view
+                ResetView();
+                // Init the renderer
+                _heatmapRenderer = new HeatMapRenderer(config, _instance, SliderRadiusMultiplier.Value);
 
-                                    int day = TimeSpan.FromSeconds(currentFilterLow).Days;
-                                    int hour = TimeSpan.FromSeconds(currentFilterLow).Hours;
-                                    int minute = TimeSpan.FromSeconds(currentFilterLow).Minutes;
-                                    _animationControl2D.TakeSnapshot(_snapshotDir, _instance.Name +
-                                        "-D-" + day.ToString(IOConstants.FORMATTER) +
-                                        "-H-" + hour.ToString(IOConstants.FORMATTER) +
-                                        "-M-" + minute.ToString(IOConstants.FORMATTER) +
-                                        "-W-" + (Math.Floor(TimeSpan.FromSeconds(currentFilterHigh - currentFilterLow).TotalMinutes).ToString(IOConstants.EXPORT_FORMAT_SHORTEST_BY_ROUNDING, IOConstants.FORMATTER)));
-                                });
-                            }
-                            else
+                _heatmapRenderer.ReadDataPoints(config.DataFile);
+                // --> Generate all heatmaps
+                bool success = true; 
+                double lowerBoundTimeWindow = 0; 
+                double upperBoundTimeWindow = stepLength;
+                do
+                {
+                    // Log
+                    LogLine("Generating heatmap for time-window: " + lowerBoundTimeWindow.ToString(IOConstants.FORMATTER) + " -> " + upperBoundTimeWindow.ToString(IOConstants.FORMATTER));
+                    
+                    
+                    success = false;
+                    if(config.VisualizePickedItems && CheckBoxDrawPickersSeparated.IsChecked == true)
+                    {
+                        for (int botID = _instance.GeneratedBotsCount; botID < _instance.GeneratedBotsCount + _instance.GeneratedMatesCount; botID++)
+                        {
+                            // Render the heatmap
+                            bool currentSuccess = _heatmapRenderer.PrepareDataForTimeWindow(lowerBoundTimeWindow, upperBoundTimeWindow, botID);
+                            success |= currentSuccess;
+                            if (currentSuccess)
                             {
-                                MessageBox.Show("Heatmaps can only be generated in 2D view!", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                                return;
+                                processScreenshot(config, lowerBoundTimeWindow, upperBoundTimeWindow, botID);
                             }
                         }
-                        // Update time window
-                        currentFilterLow += stepLength; currentFilterHigh += stepLength;
-                    } while (success);
-                    // Mark finished
-                    HeatRenderingCallback();
-                });
+                    } else
+                    {
+                        success = _heatmapRenderer.PrepareDataForTimeWindow(lowerBoundTimeWindow, upperBoundTimeWindow);
+                        if(success)
+                        {
+                            processScreenshot(config, lowerBoundTimeWindow, upperBoundTimeWindow);
+                        }
+                    }
+
+
+                    // Update time window
+                    lowerBoundTimeWindow += stepLength;
+                    upperBoundTimeWindow += stepLength;
+                    // Show the instance
+                    InitVisuals();
+                    // Reset the view
+                    ResetView();
+                } while (success);
+                // Mark finished
+                HeatRenderingCallback();
             }
             else
             {
                 // Warn the user
                 MessageBox.Show("No data files defined - load them first!");
+            }
+        }
+       
+        private void SliderMinVelocityThreshold_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            // Check whether a heatmap currently exists
+            if (SliderMinVelocityThreshold?.Value > SliderMaxVelocityThreshold?.Value)
+            {
+                SliderMaxVelocityThreshold.Value = SliderMinVelocityThreshold.Value;
+            }
+        }
+
+        private void SliderMaxVelocityThreshold_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            // Check whether a heatmap currently exists
+            if (SliderMinVelocityThreshold?.Value > SliderMaxVelocityThreshold?.Value)
+            {
+                SliderMinVelocityThreshold.Value = SliderMaxVelocityThreshold.Value;
             }
         }
 
@@ -1953,26 +2088,6 @@ namespace RAWSimO.Visualization
             }
         }
 
-        private void CheckBoxHeatTileLengthCountSwitch_Checked(object sender, RoutedEventArgs e)
-        {
-            // Check whether initialized
-            if (IsInitialized)
-            {
-                // Flip between tile length and count parameter input
-                if (CheckBoxHeatTileLengthCountSwitch.IsChecked == true)
-                {
-                    TextBoxHeatTilesX.Visibility = Visibility.Visible;
-                    TextBoxHeatTileLengthX.Visibility = Visibility.Collapsed;
-                    CheckBoxHeatTileLengthCountSwitch.Content = "#Tiles (x):";
-                }
-                else
-                {
-                    TextBoxHeatTilesX.Visibility = Visibility.Collapsed;
-                    TextBoxHeatTileLengthX.Visibility = Visibility.Visible;
-                    CheckBoxHeatTileLengthCountSwitch.Content = "TileLength (x):";
-                }
-            }
-        }
 
         private void CheckBoxHeatTransparentCanvas_Checked(object sender, RoutedEventArgs e)
         {
@@ -1981,7 +2096,7 @@ namespace RAWSimO.Visualization
         }
 
         /// <summary>
-        /// Initializes the dynamic UI-elements for the heatmap rendering section.
+        /// Initializes the dynamic UI-elements for the heatmap rendering section for Tasks and States.
         /// </summary>
         private void InitHeatmapUIElements()
         {
@@ -1991,8 +2106,27 @@ namespace RAWSimO.Visualization
                 // Create a new checkbox for the corresponding task
                 v =>
                 {
-                    CheckBox cb = new CheckBox() { Content = v.ToString(), IsChecked = true };
+                    bool check = false;
+                    CheckBox cb = new CheckBox() { Content = v.ToString(), IsChecked = check };
                     StackPanelHeatmapBotTasks.Children.Add(cb);
+                    return cb;
+                });
+
+            _heatmapBotStateFilterCheckboxes = Enum.GetValues(typeof(BotStateType)).Cast<BotStateType>().ToDictionary(
+                // Bot state type is the key
+                k => k,
+                // Create a new checkbox for the corresponding state
+                v =>
+                {
+                    bool check = false;
+                    // This is the most used option for heatmap visualization, so it is checked.
+                    if (v.ToString() == "WaitingForMate")
+                    {
+                        check = true;
+                    }
+
+                    CheckBox cb = new CheckBox() { Content = v.ToString(), IsChecked = check };
+                    StackPanelHeatmapBotStates.Children.Add(cb);
                     return cb;
                 });
         }
@@ -2000,6 +2134,10 @@ namespace RAWSimO.Visualization
         /// Contains the checkboxes used for filtering position heat-data by the corresponding bot task.
         /// </summary>
         private Dictionary<BotTaskType, CheckBox> _heatmapBotTaskFilterCheckboxes;
+        /// <summary>
+        /// Contains the checkboxes used for filtering position heat-data by the corresponding bot states.
+        /// </summary>
+        private Dictionary<BotStateType, CheckBox> _heatmapBotStateFilterCheckboxes;
         /// <summary>
         /// Parses the current heatmap setting from the GUI and returns a new configuration according to these.
         /// </summary>
@@ -2011,18 +2149,20 @@ namespace RAWSimO.Visualization
             // Parse the parameters
             bool drawInBackground = CheckBoxHeatDrawInBackground.IsChecked == true;
             bool logarithmic = CheckBoxHeatLogarithmic.IsChecked == true;
-            bool weightByDistance = CheckBoxHeatWeightByDistance.IsChecked == true;
-            bool manhattanDistance = CheckBoxHeatManhattan.IsChecked == true;
+            bool saveLegend = CheckBoxHeatSaveLegend.IsChecked == true;
             bool bichromaticColoring = CheckBoxHeatBichromaticColoring.IsChecked == true;
-            bool useTileCount = CheckBoxHeatTileLengthCountSwitch.IsChecked == true;
-            double radiusRelativeToTileLengthX; int tilesX; double tileLengthX; Color firstColor; Color secondColor;
+            bool visualizeCongestion = VisualizeCongestion.IsChecked == true;
+            bool visualizeTasksAndStates = VisualizeTasksAndStates.IsChecked == true;
+            bool visualizePickedItems = VisualizePickedItems.IsChecked == true;
+            bool visualizeOrders = VisualizeOrders.IsChecked == true;
+            double minVelocityThreshold = SliderMinVelocityThreshold.Value;
+            double maxVelocityThreshold = SliderMaxVelocityThreshold.Value;
+            Color firstColor; Color secondColor;
             HashSet<BotTaskType> botTaskFilter = _heatmapBotTaskFilterCheckboxes.Where(kvp => kvp.Value.IsChecked == true).Select(kvp => kvp.Key).ToHashSet();
+            HashSet<BotStateType> botStateFilter = _heatmapBotStateFilterCheckboxes.Where(kvp => kvp.Value.IsChecked == true).Select(kvp => kvp.Key).ToHashSet();
             try
             {
                 // Parse
-                radiusRelativeToTileLengthX = double.Parse(TextBoxHeatRadius.Text, IOConstants.FORMATTER);
-                tilesX = int.Parse(TextBoxHeatTilesX.Text);
-                tileLengthX = double.Parse(TextBoxHeatTileLengthX.Text, IOConstants.FORMATTER);
                 firstColor = (Color)ColorConverter.ConvertFromString(ComboBoxHeatmapColoringFirstColor.SelectedValue.ToString());
                 secondColor = (Color)ColorConverter.ConvertFromString(ComboBoxHeatmapColoringSecondColor.SelectedValue.ToString());
                 // Create it
@@ -2033,15 +2173,18 @@ namespace RAWSimO.Visualization
                     FinishedCallback = HeatRenderingCallback, // The callback
                     Logger = LogLine, // The logger - this can take a while
                     BotTaskFilter = botTaskFilter, // Only consider data for the given tasks
+                    BotStateFilter = botStateFilter, // Only consider data for the given states
                     Tier = _instance.GetInfoTiers().First(), // Draw first tier
-                    UseTileCount = useTileCount, // Indicates whether to use the count or length info for the tile size
-                    TilesX = tilesX, // The number of tiles used in x-Dimension
-                    TileLengthX = tileLengthX, // The length of a tile in x-dimension
+                    VisualizeCongestion = visualizeCongestion,
+                    VisualizeTasksAndStates = visualizeTasksAndStates,
+                    VisualizePickedItems = visualizePickedItems,
+                    VisualizeOrders = visualizeOrders,
+                    MinVelocityThreshold = minVelocityThreshold,
+                    MaxVelocityThreshold = maxVelocityThreshold,
                     DrawInBackground = drawInBackground, // Indicates whether the heatmap will be drawn behind everything else or in front of it
                     Logarithmic = logarithmic, // Indicates that the values are transformed by applying the logarithm
-                    WeightByDistance = weightByDistance, // Specifies whether to weight the value of datapoints by their distance to the tile center
-                    ManhattanDistance = manhattanDistance, // Specifies whether to use the manhattan distance metric
-                    RadiusRelativeToTileLength = radiusRelativeToTileLengthX, // The radius relative to the tile-length in x-dimension
+                    SaveLegend = saveLegend,
+                    FileName = (string)"",
                     BichromaticColoring = bichromaticColoring, // Specifies whether to use bichromatic coloring
                     BichromaticColorOne = firstColor, // The first color for bichromatic coloring
                     BichromaticColorTwo = secondColor, // The second color for bichromatic coloring
@@ -2054,7 +2197,7 @@ namespace RAWSimO.Visualization
         private void ReadInstanceForHeatmapRendering()
         {
             // Parse the instance
-            _instance = InstanceIO.ReadInstance(_heatMapInstanceFile, null, null, true, true);
+            _instance = InstanceIO.ReadInstance(_heatMapInstanceFile, _heatMapConfigFile, null, true, true);
             // Invalidate the instance (the instance should not execute in this state)
             _instanceInvalidated = true;
             // Store bot starting positions before removing the bots
@@ -2074,11 +2217,6 @@ namespace RAWSimO.Visualization
         {
             this.Dispatcher.Invoke(() =>
             {
-                // Set meta-info for feedback
-                TextBlockHeatDrawingInfoTileLength.Text = "Tile-size: " +
-                    _heatmapRenderer.TileLengthX.ToString(IOConstants.EXPORT_FORMAT_SHORT, IOConstants.FORMATTER) + " x " +
-                    _heatmapRenderer.TileLengthY.ToString(IOConstants.EXPORT_FORMAT_SHORT, IOConstants.FORMATTER);
-                TextBlockHeatDrawingInfoRadius.Text = "Radius: " + _heatmapRenderer.Radius.ToString(IOConstants.EXPORT_FORMAT_SHORT, IOConstants.FORMATTER);
                 // Set opacity just in case it is not the default anymore
                 if (_heatmapRenderer.ResultImage != null)
                     _heatmapRenderer.ResultImage.Opacity = SliderHeatOpacity.Value;
@@ -2097,7 +2235,8 @@ namespace RAWSimO.Visualization
             // Reset the view
             ResetView();
             // Init the renderer
-            _heatmapRenderer = new HeatMapRenderer(config);
+            _heatmapRenderer = new HeatMapRenderer(config, _instance, SliderRadiusMultiplier.Value);
+
             // Render the heatmap
             if (asynchronously)
                 _heatmapRenderer.RenderAsync();

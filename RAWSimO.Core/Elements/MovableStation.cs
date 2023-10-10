@@ -32,11 +32,16 @@ namespace RAWSimO.Core.Elements
         /// <param name="collisionPenaltyTime">The collision penalty time.</param>
         /// <param name="x">The x.</param>
         /// <param name="y">The y.</param>
-        public MovableStation(int id, Instance instance, double radius, double acceleration, double deceleration, double maxVelocity, double turnSpeed, double collisionPenaltyTime, double x = 0.0, double y = 0.0) 
+        /// <param name="isRefilling">The Flag that shows if the robot is used for refilling.</param>
+        public MovableStation(int id, Instance instance, double radius, double acceleration, double deceleration, double maxVelocity, double turnSpeed, double collisionPenaltyTime, double x = 0.0, double y = 0.0, bool isRefilling = false) 
         : base(id, instance, radius, 99999, acceleration, deceleration, maxVelocity, turnSpeed, collisionPenaltyTime, x, y)
         {
             StationPart = new OutputStationAux(instance);
             StationPart.movableStationPart = this;
+            IsRefill = isRefilling;
+            CurrentlyRefilling = false;
+            ProcessedQuantity = 0.0;
+            SlowMovementWaypoints = new List<(Waypoint wp, double time, double velocity)>();
         }
         ///<summary>
         ///implicitly cast MovableStation object to OutputStation object for compatibility with the rest of the system
@@ -49,6 +54,21 @@ namespace RAWSimO.Core.Elements
         /// Station part of the movable station
         /// </summary>
         public OutputStationAux StationPart { get; set; }
+
+        /// <summary>
+        /// Quantity transported by this movable station.
+        /// </summary>
+        public double ProcessedQuantity { get; set; }
+
+        /// <summary>
+        /// Flag that shows if the robot is used for refilling.
+        /// </summary>
+        public bool IsRefill { get; set; }
+        
+        /// <summary>
+        /// Flag that shows if the robot is refilling just now.
+        /// </summary>
+        public bool CurrentlyRefilling { get; set; }
         /// <summary>
         /// Gets the waypoint of the needed input pallet stand through BotManager
         /// </summary>
@@ -56,6 +76,14 @@ namespace RAWSimO.Core.Elements
         internal Waypoint GetInputPalletStandWaypoint(MultiPointGatherTask task)
         {
             return (Instance.Controller.BotManager as DummyBotManager).GetInputPalletStandLocation(task);
+        }
+        /// <summary>
+        /// Gets the waypoint of the needed closest input pallet stand through BotManager
+        /// </summary>
+        /// <returns>Waypoint of the input pallet stand</returns>
+        internal Waypoint GetClosestInputPalletStandLocation(Waypoint wp)
+        {
+            return (Instance.Controller.BotManager as DummyBotManager).GetClosestInputPalletStandLocation(wp);
         }
         /// <summary>
         /// Gets the waypoint of the needed output pallet stand through BotManager
@@ -82,7 +110,12 @@ namespace RAWSimO.Core.Elements
         internal override Waypoint GetLocationAfter(int NrRegisteredLocations)
         {
             //NrRegisteredLocations should be number of state queue waypoints already registered (1-based index) 
-            if (_stateQueue.Count <= NrRegisteredLocations) throw new ArgumentOutOfRangeException(nameof(NrRegisteredLocations), "There are more registered locations then PPT states");
+            if (_stateQueue.Count <= NrRegisteredLocations)
+            {
+                if (!Instance.SettingConfig.ExcludePalletStands) throw new ArgumentOutOfRangeException(nameof(NrRegisteredLocations), "There are more registered locations then PPT states");
+                else return null;
+            }
+
             BotStateType firstStateType = _stateQueue.First.Value.Type;
             IBotState state = null;
 
@@ -455,6 +488,14 @@ namespace RAWSimO.Core.Elements
         /// <param name="currentTime">The time to update to.</param>
         public override void Update(double lastTime, double currentTime)
         {
+            if(CurrentBotStateType == BotStateType.Move && !Instance.Controller.PathManager._locationManager.queueingBots.Any(bot => bot.ID == ID))
+            {
+                double velocity = Math.Sqrt(XVelocity * XVelocity + YVelocity * YVelocity);
+                if (velocity < Instance.SettingConfig.StatVelocityCutoff && (SlowMovementWaypoints.Count() == 0 || SlowMovementWaypoints.Last().time + 1 < currentTime))
+                {
+                    SlowMovementWaypoints.Add((CurrentWaypoint, currentTime, velocity));
+                }
+            }
             //first do everything a station has to do
             StationPart.Update(lastTime, currentTime);
             //if station has something to do, force wake the bot 
@@ -543,7 +584,6 @@ namespace RAWSimO.Core.Elements
 
             if (!Instance.SettingConfig.BotsSelfAssist)
             {
-                address = Instance.Controller.MateScheduler.GetBotCurrentItemAddress(this, assistant.CurrentWaypoint);
                 if (!Instance.SettingConfig.SameAssistLocation) Instance.ResourceManager.FreeLockedPosition(assistant.CurrentWaypoint);
 
                 Instance.Controller.MateScheduler.NotifyAssistEnded(this, assistant);
@@ -553,11 +593,33 @@ namespace RAWSimO.Core.Elements
 
                 AssistantDestination = null;
 
+                // The resources are cleared based on the current address and then corresponding index
+                // Previously it was based on the waypoint, and that caused problems and skipped items
+                // whenever there were items with differrent address but same waypoint.
+                // Same address items are still not allowed.
+                
+                /*string curr_adr = this.SwarmState.currentAddress;
+                var task = (MultiPointGatherTask)CurrentTask;
+                int pod_item_index = task.PodItems.FindIndex(pi => pi.GetAddress() == curr_adr);
+                SimpleItemDescription simpleItem = task.PodItems[pod_item_index];
+                task.Order.CompleteLocation(simpleItem);
+
+                task.Locations.RemoveAt(pod_item_index);
+                task.PodLocations.RemoveAt(pod_item_index);
+                task.PodItems.RemoveAt(pod_item_index);
+                task.Times.Remove(curr_adr);
+                task.NeededQuantities.Remove(curr_adr);
+                task.TriesOfItemCollecting.Remove(curr_adr);
+                // used for pod lock update
+                address = curr_adr;*/
+
+
                 var task = (MultiPointGatherTask)CurrentTask;
                 // reach the pod location of the current item (task)
                 Waypoint podLocation = task.PodLocations[task.Locations.FindIndex(l => l.ID == assistant.CurrentWaypoint.ID)];
                 // reach the current picking item
                 SimpleItemDescription simpleItem = task.PodItems[task.Locations.FindIndex(l => l.ID == assistant.CurrentWaypoint.ID)];
+                address = simpleItem.GetAddress();
                 // get the current item and updated the status in the order
                 ItemDescription item = task.LocationItemDictionary[podLocation].First();
                 task.Order.CompleteLocation(item);
@@ -565,12 +627,32 @@ namespace RAWSimO.Core.Elements
                 // to keep the indexing correct, we need to remove also the pod location
                 task.PodLocations.Remove(podLocation);
                 task.PodItems.Remove(simpleItem);
+                task.Times.Remove(address);
+                task.NeededQuantities.Remove(address);
+                task.TriesOfItemCollecting.Remove(address);
+
             }
             else
-               address = Instance.Controller.MateScheduler.GetBotCurrentItemAddress(this, CurrentWaypoint);
+            {
+                var task = (MultiPointGatherTask)CurrentTask;
+                // reach the pod location of the current item (task)
+                Waypoint podLocation = task.PodLocations[task.Locations.FindIndex(l => l.ID == AssistantDestination.ID)];
+                // reach the current picking item
+                SimpleItemDescription simpleItem = task.PodItems[task.Locations.FindIndex(l => l.ID == AssistantDestination.ID)];
+                address = simpleItem.GetAddress();
+                // get the current item and updated the status in the order
+                ItemDescription item = task.LocationItemDictionary[podLocation].First();
+                task.Order.CompleteLocation(item);
+                task.Locations.Remove(AssistantDestination);
+                // to keep the indexing correct, we need to remove also the pod location
+                task.PodLocations.Remove(podLocation);
+                task.PodItems.Remove(simpleItem);
+                task.Times.Remove(address);
+                task.NeededQuantities.Remove(address);
+                task.TriesOfItemCollecting.Remove(address);   
+            }    
 
             Instance.Controller.MateScheduler.itemTable[ID].UpdatePodLock(address, -1); 
-            StatNumberOfPickups++;
             // removes the locations (and subsequently also assistnace)
             // TODO: should be divided in removing assistance and then removing location
             // Removed because of BotsSelfAssist Error
@@ -586,6 +668,16 @@ namespace RAWSimO.Core.Elements
         /// Statistic for total assist time given to this movable station
         /// </summary>
         public double StatTotalAssistTime = 0;
+        /// <summary>
+        /// Statistic for total picker driving this moveable station distance
+        /// </summary>
+        public double StatTotalPickerDistance= 0;
+
+        #endregion
+
+        #region HeatmapStatistics
+
+        public List<(Waypoint wp, double time, double velocity)> SlowMovementWaypoints { get; set; }
 
         #endregion
     }

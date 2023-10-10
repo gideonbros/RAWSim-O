@@ -33,7 +33,7 @@ namespace RAWSimO.Core.Control.Defaults.OrderBatching
         protected override void DecideAboutPendingOrders()
         {  
             //get all stations which are currently not doing anything
-            List<MovableStation> availableStations = Instance.MovableStations.Where(s => s.CapacityInUse == 0).ToList();
+            List<MovableStation> availableStations = Instance.MovableStations.Where(s => s.CapacityInUse == 0 && s.IsActive && !s.IsRefill).ToList();
             //assign pending orders to stations respectively
             int pendingOrdersCount = PendingOrdersCount;
             for (int i = 0; i < Math.Min(availableStations.Count, pendingOrdersCount); i++)

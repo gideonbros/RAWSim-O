@@ -4,6 +4,7 @@ using RAWSimO.Core.Control.Defaults.ItemStorage;
 using RAWSimO.Core.Control.Defaults.MethodManagement;
 using RAWSimO.Core.Control.Defaults.OrderBatching;
 using RAWSimO.Core.Control.Defaults.PathPlanning;
+using RAWSimO.Core.Control.Defaults.PalletStandManagment;
 using RAWSimO.Core.Control.Defaults.PodStorage;
 using RAWSimO.Core.Control.Defaults.ReplenishmentBatching;
 using RAWSimO.Core.Control.Defaults.Repositioning;
@@ -136,8 +137,17 @@ namespace RAWSimO.Core.Control
                 case MethodManagementType.Scheduled: MethodManager = new ScheduleMethodManager(instance); break;
                 default: throw new ArgumentException("Unknown method manager: " + instance.ControllerConfig.MethodManagementConfig.GetMethodType());
             }
+            // Init pallet stand manager
+            switch (instance.ControllerConfig.PalletStandManagerConfig.GetMethodType())
+            {
+                case PalletStandManagerType.EuclideanGreedy: PalletStandManager = new PSEuclideanGreedyManager(instance); break;
+                case PalletStandManagerType.Original: PalletStandManager = new PSOriginalManager(instance); break;
+                case PalletStandManagerType.Advanced: PalletStandManager = new PSAdvancedManager(instance); break;
+            }
             // Init allocator
             Allocator = new Allocator(instance);
+
+            instance.SettingConfig.MateSchedulerLoggerPath = instance.layoutConfiguration.GetLoggerPath("Mate_scheduler", "MS");
             //Init Mate scheduler
             if (Instance.SettingConfig.SeeOffMateScheduling)
             {
@@ -155,10 +165,16 @@ namespace RAWSimO.Core.Control
             {
                 MateScheduler = new MateScheduler(instance, instance.SettingConfig.MateSchedulerLoggerPath);
             }
+
+            string miscellaneousLoggerPath = instance.layoutConfiguration.GetLoggerPath("Miscellaneous", "Misc");
+            if (Logger != null)
+                Logger.Close();
+            Logger = new System.IO.StreamWriter(miscellaneousLoggerPath);
             
             //Init statistics manager
             StatisticsManager = new StatisticsManager(instance);
 
+            OptimizationClient = new OptimizationClient(instance);
         }
 
         /// <summary>
@@ -202,6 +218,10 @@ namespace RAWSimO.Core.Control
         /// </summary>
         public PathManager PathManager { get; private set; }
         /// <summary>
+        /// The pallet stand manager.
+        /// </summary>
+        public PalletStandManager PalletStandManager { get; private set; }
+        /// <summary>
         /// The allocator.
         /// </summary>
         public Allocator Allocator { get; private set; }
@@ -215,6 +235,16 @@ namespace RAWSimO.Core.Control
         public StatisticsManager StatisticsManager { get; set; }
 
         /// <summary>
+        /// REST client that is an interface to outside optimization module.
+        /// </summary>
+        public OptimizationClient OptimizationClient { get; set; }
+
+        /// <summary>
+        /// Logger for miscellaneous output
+        /// </summary>
+        public System.IO.StreamWriter Logger { get; set; }
+
+        /// <summary>
         /// The time the simulation step is completed.
         /// </summary>
         private double _updateFinishTime = 0.0;
@@ -223,6 +253,21 @@ namespace RAWSimO.Core.Control
         /// The current time.
         /// </summary>
         public double CurrentTime { get; private set; } = 0.0;
+
+        /// <summary>
+        /// The last time statistics summary was outputed.
+        /// </summary>
+        public double LastStatisticsWriteTime { get; private set; } = 0.0;
+
+        /// <summary>
+        /// The last time statistics summary was outputed.
+        /// </summary>
+        public StatisticsSummaryEntry TotalSummary;
+
+        /// <summary>
+        /// The last time statistics summary was outputed.
+        /// </summary>
+        public int StatisticsOutputsCount= 0;
 
         /// <summary>
         /// The progress of the simulation.
@@ -261,7 +306,27 @@ namespace RAWSimO.Core.Control
                 {
                     //if order mode is fixed or fill and all the order have been completed, stop when all movable stations enter rest
                     //or if we have manually set order count, stop at the reached count of completed orders
-                    if ((Instance.MovableStations.All(ms => ms.IsResting()) || Instance.SettingConfig.ManualOrderCountStopCondition) &&
+                    if (Instance.SettingConfig.StatisticsSummaryOutputFrequency > 0 &&
+                        CurrentTime > 1 &&
+                        Instance.MovableStations.All(ms => ms.IsResting()) &&
+                        Instance.MovableStations.Count(ms => ms.AssignedOrders.Count() > 0) == 0 &&
+                        OrderManager.PendingOrdersCount == 0)
+                    {
+                        if (Instance.SettingConfig.PartialStatisticsSummaryFile != null)
+                        {
+                            Instance.LogDefault(">>> Writing final partial statistics summary...");
+                            StatisticsManager.StatisticsSummaryTotal.Update(new Management.StatisticsSummaryEntry(Instance));
+                            StatisticsManager.WriteStatisticsSummary(
+                                Instance.SettingConfig.PartialStatisticsSummaryFile,
+                                true
+                            );
+                        }
+
+                        Instance.SettingConfig.StopCondition = true;
+                        return;
+                    }
+                    // If all of the MS are resting or some of them is refill and all orders are done, then we are done with the simulation.
+                    if ((Instance.MovableStations.All(ms => (ms.IsResting() || ms.IsRefill)) || Instance.SettingConfig.ManualOrderCountStopCondition) &&
                         Instance.SettingConfig.OrderCountStopCondition == Instance.ItemManager.CompletedOrdersCount)
                     {
                         Instance.SettingConfig.StopCondition = true;
@@ -299,6 +364,88 @@ namespace RAWSimO.Core.Control
 
                     // Set new time
                     CurrentTime = nextTime;
+
+                    if (Instance.SettingConfig.PartialStatisticsSummaryFile != null &&
+                        Instance.SettingConfig.StatisticsSummaryOutputFrequency > 0 &&
+                        LastStatisticsWriteTime + Instance.SettingConfig.StatisticsSummaryOutputFrequency * 60 < CurrentTime)
+                    {
+                        Instance.LogDefault(">>> Writing partial results ...");
+                        // Write statistics
+                        StatisticsManager.StatisticsSummaryTotal.Update(new StatisticsSummaryEntry(Instance));
+                        StatisticsManager.WriteStatisticsSummary(
+                            Instance.SettingConfig.PartialStatisticsSummaryFile,
+                            true
+                        );
+                        // Clear statistics
+                        Instance.StatReset();
+                        Instance.LogDefault(">>> Finished writing partial results ...");
+                        LastStatisticsWriteTime = CurrentTime;
+                        StatisticsOutputsCount++;
+                        if (Instance.layoutConfiguration.PickersPerPeriod.Count > 0)
+                        {
+                            for (int i = 0; i < Instance.MateBots.Count; i++)
+                            {
+                                if (StatisticsOutputsCount < Instance.layoutConfiguration.PickersPerPeriod.Count)
+                                {
+                                    if (i < Instance.layoutConfiguration.PickersPerPeriod[StatisticsOutputsCount])
+                                        Instance.MateBots[i].IsActive = true;
+                                    else
+                                        Instance.MateBots[i].IsActive = false;
+
+                                }
+                                else
+                                {
+                                    if (i < Instance.layoutConfiguration.PickersPerPeriod.Last())
+                                        Instance.MateBots[i].IsActive = true;
+                                    else
+                                        Instance.MateBots[i].IsActive = false;
+                                }
+                            }
+                        }
+                        if (Instance.layoutConfiguration.BotsPerPeriod.Count > 0)
+                        {
+                            for (int i = 0; i < Instance.MovableStations.Count - Instance.layoutConfiguration.RefillingStationCount; i++)
+                            {
+                                if (StatisticsOutputsCount < Instance.layoutConfiguration.BotsPerPeriod.Count)
+                                {
+                                    if (i < Instance.layoutConfiguration.BotsPerPeriod[StatisticsOutputsCount])
+                                        Instance.MovableStations[i].IsActive = true;
+                                    else
+                                        Instance.MovableStations[i].IsActive = false;
+
+                                }
+                                else
+                                {
+                                    if (i < Instance.layoutConfiguration.BotsPerPeriod.Last())
+                                        Instance.MovableStations[i].IsActive = true;
+                                    else
+                                        Instance.MovableStations[i].IsActive = false;
+                                }
+                            }
+                        }
+                        
+                        if (Instance.layoutConfiguration.RefillingPerPeriod.Count > 0)
+                        {
+                            for (int i = Instance.layoutConfiguration.MovableStationCount; i < Instance.MovableStations.Count; i++)
+                            {
+                                if (StatisticsOutputsCount < Instance.layoutConfiguration.RefillingPerPeriod.Count)
+                                {
+                                    if (i < Instance.layoutConfiguration.RefillingPerPeriod[StatisticsOutputsCount] + Instance.layoutConfiguration.MovableStationCount)
+                                        Instance.MovableStations[i].IsActive = true;
+                                    else
+                                        Instance.MovableStations[i].IsActive = false;
+
+                                }
+                                else
+                                {
+                                    if (i < Instance.layoutConfiguration.BotsPerPeriod.Last() + Instance.layoutConfiguration.MovableStationCount)
+                                        Instance.MovableStations[i].IsActive = true;
+                                    else
+                                        Instance.MovableStations[i].IsActive = false;
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -318,5 +465,336 @@ namespace RAWSimO.Core.Control
 
         #endregion
 
+    }
+
+    public class PickerInfo
+    {
+        public PickerInfo(int picker_id_, double x_, double y_, int bot_id_, string item_, double item_status_)
+        {
+            picker_id = picker_id_;
+            x = x_; y = y_;
+            bot_id = bot_id_;
+            item = item_;
+            item_status = item_status_;
+        }
+        public int picker_id { get; set; }
+        public double x { get; set; }
+        public double y { get; set; }
+        public int bot_id { get; set; }
+        public string item { get; set; }
+        public double item_status { get; set; }
+    }
+
+    public class BotInfo
+    {
+        public BotInfo(int bot_id_, double x_, double y_, string item_, double item_status_, double _predicted_time)
+        {
+            bot_id = bot_id_;
+            x = x_;
+            y = y_;
+            item = item_;
+            item_status = item_status_;
+            predicted_time = _predicted_time;
+        }
+
+        public int bot_id { get; set; }
+        public double x { get; set; }
+        public double y { get; set; }
+        public string item { get; set; }
+        public double item_status { get; set; }
+        public double predicted_time { get; set; }
+    }
+
+    public class OrderInfo
+    {
+        public int order_id { get; set; }
+        public int bot_id { get; set; }
+        public int deadline { get; set; }
+        public List<string> items { get; set; }
+        public List<double> times { get; set; }
+    }
+
+    public class PickerAssignment
+    {
+        public PickerAssignment(int bot_id_, string item_)
+        {
+            bot_id = bot_id_;
+            item = item_;
+        }
+        public int bot_id;
+        public string item;
+    }
+    public class PickerSchedule
+    {
+        public PickerSchedule(int picker_id_)
+        {
+            picker_id = picker_id_;
+            schedule = new List<PickerAssignment>();
+        }
+        public int picker_id { get; set; }
+        public List<PickerAssignment> schedule;
+    }
+
+    public class BotOrder
+    {
+        public string bot { get; set; }
+        public List<string> order { get; set; }
+
+        public override string ToString()
+        {
+            string botOrder = bot + " : [";
+            foreach (var item in order)
+            {
+                botOrder += item + ", ";
+            }
+            botOrder = botOrder.Remove(botOrder.Length - 2, 2) + "]";
+            return botOrder;
+        }
+    }
+
+    public class OptimizationClient
+    {
+        private HttpClient client;
+        private Instance Instance { get; set; }
+
+        public ItemSchedule schedule { get; set; }
+
+        public double lastCallTime = 0;
+        
+        public bool isRecentlyUpdated = false;
+        public class OrderInfo2
+        {
+            public OrderInfo2(int botid, List<string> itemlist)
+            {
+                botID = botid;
+                items = itemlist;
+            }
+            public int botID { get; set; }
+            public List<string> items { get; set; }
+            public override string ToString()
+            {
+                string botOrder = botID + " : [";
+                foreach (var item in items)
+                {
+                    botOrder += item + ", ";
+                }
+                botOrder = botOrder.Remove(botOrder.Length - 2, 2) + "]";
+                return botOrder;
+            }
+        }
+
+        public class ItemSchedule
+        {
+            public Dictionary<int, List<string>> botOrder;
+            public Dictionary<int, int> botOrderID;
+            public Dictionary<int, PickerInfo> pickers;
+            public Dictionary<int, BotInfo> bots;
+            public Dictionary<int, List<PickerAssignment>> pickersSchedule;
+            public List<Tuple<int, int, string>> assistanceRequests;
+            public ItemSchedule()
+            {
+                botOrder = new Dictionary<int, List<string>>();
+                botOrderID = new Dictionary<int, int>();
+                pickers = new Dictionary<int, PickerInfo>();
+                bots = new Dictionary<int, BotInfo>();
+                pickersSchedule = new Dictionary<int, List<PickerAssignment>>();
+                assistanceRequests = new List<Tuple<int, int, string>>();
+            }
+
+            public void Update(List<OrderInfo> assignedOrders)
+            {
+                foreach (var orderInfo in assignedOrders)
+                {
+                    // if an order is already in the schedule
+                    // just update the order of items
+                    if (botOrder.ContainsKey(orderInfo.bot_id) &&
+                        botOrderID[orderInfo.bot_id] == orderInfo.order_id)
+                    {
+                        botOrder[orderInfo.bot_id].Sort(
+                            (string a, string b) =>
+                            {
+                                int ia = orderInfo.items.FindIndex(adr => adr == a);
+                                int ib = orderInfo.items.FindIndex(adr => adr == b);
+                                return ia > ib ? 1 : ia < ib ? -1 : 0;
+                            }
+                            );
+                    }
+                    else
+                    {
+                        botOrder[orderInfo.bot_id] = orderInfo.items;
+                        botOrderID[orderInfo.bot_id] = orderInfo.order_id;
+                    }
+                }
+            }
+
+            public void InitPickers(List<int> pickerIDs)
+            {
+                foreach (var id in pickerIDs)
+                {
+                    PickerInfo pickerInfo = new PickerInfo(
+                        id, 0.0, 0.0, -1, "", -1);
+                    pickers.Add(id, pickerInfo);
+                }
+            }
+
+            public void InitBots(List<int> botIDs)
+            {
+                foreach (var id in botIDs)
+                {
+                    BotInfo botInfo = new BotInfo(
+                        id, 0.0, 0.0, "", -1, 0.0);
+                    bots.Add(id, botInfo);
+                }
+            }
+
+            public void UpdatePicker(int ID, double x, double y, Waypoints.Waypoint currentWp, int botID, string item, double item_status)
+            {
+                UpdatePickerXY(ID, x, y);
+                pickers[ID].bot_id = botID;
+                UpdatePickerAddress(ID, item);
+                UpdatePickerItemStatus(ID, item_status);
+            }
+
+            public void UpdatePickerWp(int ID, Waypoints.Waypoint currentWp)
+            {
+                pickers[ID].x = currentWp.X;
+                pickers[ID].y = currentWp.Y;
+            }
+            public void UpdatePickerXY(int ID, double x, double y)
+            {
+                pickers[ID].x = x;
+                pickers[ID].y = y;
+            }
+            public void UpdateBotWp(int ID, Waypoints.Waypoint currentWp)
+            {
+                bots[ID].x = currentWp.X;
+                bots[ID].y = currentWp.Y;
+            }
+            public void UpdateBotXY(int ID, double x, double y)
+            {
+                bots[ID].x = x;
+                bots[ID].y = y;
+            }
+            public void UpdateBotPredictedTime(int ID, double predicted_time)
+            {
+                bots[ID].predicted_time = predicted_time;
+            }
+            public void UpdatePickerItemStatus(int ID, double item_status)
+            {
+                pickers[ID].item_status = item_status;
+            }
+
+            public void UpdatePickerAddress(int ID, string address)
+            {
+                pickers[ID].item = address;
+            }
+
+            public void UpdateBotItem(int ID, string item)
+            {
+                bots[ID].item = item;
+            }
+
+            public void UpdateBotItemStatus(int ID, double item_status)
+            {
+                bots[ID].item_status = item_status;
+            }
+
+            public List<string> GetItemSchedule(int botID)
+            {
+                return botOrder[botID];
+            }
+
+            public void Update(int botID, int orderID, List<string> items)
+            {
+                // Update on receiving new order
+                botOrder[botID] = items;
+                botOrderID[botID] = orderID;
+            }
+
+            public void Update(int botID, int orderID, string item)
+            {
+                if (botOrder[botID].Count == 0)
+                {
+                    botOrder[botID].Add(item);
+                    return;
+                }
+                // Update on receiving new item
+                if (botOrder[botID][0] == item) return;
+                botOrder[botID].Remove(item);
+                botOrder[botID].Insert(0, item);
+            }
+
+            public void Update(List<PickerSchedule> picker_schedules)
+            {
+                foreach (var pickerSchedule in picker_schedules)
+                {
+                    if (!pickersSchedule.ContainsKey(pickerSchedule.picker_id))
+                        pickersSchedule.Add(pickerSchedule.picker_id, pickerSchedule.schedule);
+                    else
+                    {
+                        pickersSchedule[pickerSchedule.picker_id] = pickerSchedule.schedule;
+                    }
+                }
+            }
+
+            public Tuple<int, int, string> GetNextAssignment(int picker_id)
+            {
+                if (!pickersSchedule.ContainsKey(picker_id) || pickersSchedule[picker_id].Count == 0)
+                    return null;
+                PickerAssignment pa = pickersSchedule[picker_id].First();
+                // check if assistance was requested
+                Tuple<int, int, string> ar = assistanceRequests.Find(ar => ar.Item1 == pa.bot_id && ar.Item3 == pa.item);
+                return ar;
+            }
+
+            public void AddNextAssignment(int bot_id, int wp_id, string adr)
+            {
+                assistanceRequests.Add(new Tuple<int, int, string>(bot_id, wp_id, adr));
+            }
+
+            public void RemoveAssignment(int picker_id)
+            {
+                if (pickersSchedule[picker_id].Count == 0) return;
+                PickerAssignment pa = pickersSchedule[picker_id].First();
+                // this check is due to bug where sometimes first item in pickers schedule is not the one picker has just picked
+                if (pa.bot_id != pickers[picker_id].bot_id || pa.item != pickers[picker_id].item) return;
+                assistanceRequests.Remove(assistanceRequests.Find(ar => ar.Item1 == pa.bot_id && ar.Item3 == pa.item));
+                pickersSchedule[picker_id].Remove(pickersSchedule[picker_id].First());
+            }
+        }
+
+        public OptimizationClient(Instance instance)
+        {
+            client = new HttpClient();
+            client.BaseAddress = new Uri("http://127.0.0.1:5000");
+            client.DefaultRequestHeaders.Clear();
+            client.DefaultRequestHeaders.Accept.Add(
+                new MediaTypeWithQualityHeaderValue("application/json"));
+            Instance = instance;
+            schedule = new ItemSchedule();
+            // TODO: move to some appropriate location
+            schedule.InitPickers(instance.MateBots.Select(mb => mb.ID).ToList());
+            schedule.InitBots(instance.MovableStations.Select(ms => ms.ID).ToList());
+        }
+
+        public void ClearItems(int ID)
+        {
+            if (schedule.botOrder.ContainsKey(ID))
+                schedule.botOrder[ID].Clear();
+        }
+
+        public void AddNewItem(int ID, string address)
+        {
+            if (!schedule.botOrder.ContainsKey(ID))
+                schedule.botOrder.Add(ID, new List<string>());
+            schedule.botOrder[ID].Add(address);
+        }
+
+        public void RemoveItem(int ID, string address)
+        {
+            schedule.botOrder[ID].Remove(address);
+            schedule.UpdateBotItem(ID, address);
+            schedule.UpdateBotItemStatus(ID, -1);
+        }
     }
 }

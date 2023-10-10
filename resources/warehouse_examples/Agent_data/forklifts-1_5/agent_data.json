@@ -1,9 +1,0 @@
-{
-	"bots_as_pickers": true,
-	"vehicle_max_velocity": 1.5,
-	"human_max_velocity": 1,
-	"vehicle_max_acceleration": 0.25,
-	"human_max_acceleration": 10,
-	"reserve_same_loc": false,
-	"reserve_next_loc": false
-}

@@ -1,4 +1,5 @@
-﻿using RAWSimO.Core.Control;
+﻿using RAWSimO.Core.Bots;
+using RAWSimO.Core.Control;
 using RAWSimO.Core.Elements;
 using RAWSimO.Core.IO;
 using RAWSimO.Core.Items;
@@ -3645,7 +3646,9 @@ namespace RAWSimO.Core.Statistics
     }
 
     /// <summary>
-    /// Constitutes one data-point storing a location snapshot.
+    /// Constitutes one data-point storing a location snapshot. 
+    /// Also, each data-point contains MovingSlowlyPositions.
+    /// They track all the positions of the robot in the previous x seconds where speed was slow, and are later used for congestion analysis.
     /// </summary>
     public class LocationDatapoint : HeatDatapoint
     {
@@ -3664,9 +3667,25 @@ namespace RAWSimO.Core.Statistics
         /// </summary>
         public double TimeStamp;
         /// <summary>
-        /// The state the bot was in at the time of the snapshot.
+        /// The task the bot was in at the time of the snapshot.
         /// </summary>
         public BotTaskType BotTask;
+        /// <summary>
+        /// The state the bot was in at the time of the snapshot.
+        /// </summary>
+        public BotStateType BotState;
+        /// <summary>
+        /// Id of bot.
+        /// </summary>
+        public int BotId;
+        /// <summary>
+        /// Id of order.
+        /// </summary>
+        public int OrderId;
+        /// <summary>
+        /// (X,Y) positions where robot moved slowly, and velocity at that position.
+        /// </summary>
+        public List<(double x, double y, double velocity)> MovingSlowlyPositions;
         /// <summary>
         /// Returns a header that is used for the corresponding CSV file storing the data.
         /// </summary>
@@ -3679,7 +3698,10 @@ namespace RAWSimO.Core.Statistics
                 "Tier" + IOConstants.DELIMITER_VALUE +
                 "X" + IOConstants.DELIMITER_VALUE +
                 "Y" + IOConstants.DELIMITER_VALUE +
-                "BotTask";
+                "BotTask" + IOConstants.DELIMITER_VALUE +
+                "BotState" + IOConstants.DELIMITER_VALUE +
+                "BotId" + IOConstants.DELIMITER_VALUE + 
+                "OrderId" + IOConstants.DELIMITER_VALUE + "MovingSlowlyPositions";
         }
         /// <summary>
         /// Returns a CSV string identifying this data-point.
@@ -3699,14 +3721,24 @@ namespace RAWSimO.Core.Statistics
                 case BotTaskType.MultiPointGatherTask: task = 'M'; break;
                 case BotTaskType.AssistTask: task = 'A'; break;
                 case BotTaskType.AbortingTask: task = '!'; break;
+                case BotTaskType.RefillingTask: task = 'F'; break;
                 default: throw new ArgumentException("Unknown bot task type: " + BotTask.ToString());
+            }
+            string dataString = "";
+            foreach(var data in MovingSlowlyPositions)
+            {
+                dataString += data.x + "," + data.y + "," + data.velocity + ",";
             }
             return
                 TimeStamp.ToString(IOConstants.EXPORT_FORMAT_SHORTER, IOConstants.FORMATTER) + IOConstants.DELIMITER_VALUE +
                 Tier.ToString() + IOConstants.DELIMITER_VALUE +
-                X.ToString(IOConstants.EXPORT_FORMAT_SHORTER, IOConstants.FORMATTER) + IOConstants.DELIMITER_VALUE +
-                Y.ToString(IOConstants.EXPORT_FORMAT_SHORTER, IOConstants.FORMATTER) + IOConstants.DELIMITER_VALUE +
-                task.ToString();
+                X.ToString() + IOConstants.DELIMITER_VALUE +
+                Y.ToString() + IOConstants.DELIMITER_VALUE +
+                task.ToString() + IOConstants.DELIMITER_VALUE + 
+                BotState.ToString() + IOConstants.DELIMITER_VALUE + 
+                BotId.ToString() + IOConstants.DELIMITER_VALUE +
+                OrderId.ToString() + IOConstants.DELIMITER_VALUE +
+                dataString;
         }
         /// <summary>
         /// Parses the data-point from a CSV-file line.
@@ -3725,8 +3757,21 @@ namespace RAWSimO.Core.Statistics
                 case 'I': task = BotTaskType.Insert; break;
                 case 'E': task = BotTaskType.Extract; break;
                 case 'S': task = BotTaskType.Rest; break;
+                case 'M' : task = BotTaskType.MultiPointGatherTask; break;
+                case 'A': task = BotTaskType.AssistTask; break;
+                case '!': task = BotTaskType.AbortingTask; break;
+                case 'F': task = BotTaskType.RefillingTask; break;
                 default: throw new ArgumentException("Unknown bot task type: " + values[4]);
             }
+            string[] positions = values[8].Split(',');
+
+            List<(double x, double y, double velocity)> movingSlowlyPositions = new List<(double x, double y, double velocity)>();
+
+            for (int i = 0; i < positions.Length/3; i++)
+            {
+                movingSlowlyPositions.Add((double.Parse(positions[3 * i]), double.Parse(positions[3 * i + 1]), double.Parse(positions[3 * i + 2])));
+            }
+            
             return new LocationDatapoint()
             {
                 TimeStamp = double.Parse(values[0], IOConstants.FORMATTER),
@@ -3734,6 +3779,10 @@ namespace RAWSimO.Core.Statistics
                 X = double.Parse(values[2], IOConstants.FORMATTER),
                 Y = double.Parse(values[3], IOConstants.FORMATTER),
                 BotTask = task,
+                BotState = (BotStateType)Enum.Parse(typeof(BotStateType), values[5], true),
+                BotId = int.Parse(values[6], IOConstants.FORMATTER),
+                OrderId = int.Parse(values[7], IOConstants.FORMATTER),
+                MovingSlowlyPositions = movingSlowlyPositions,
             };
         }
         /// <summary>

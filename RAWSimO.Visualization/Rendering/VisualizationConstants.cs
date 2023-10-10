@@ -52,6 +52,7 @@ namespace RAWSimO.Visualization.Rendering
             { "Debug", new SolidColorBrush(Colors.Red) },
             { "RequestAssistance", new SolidColorBrush(Colors.Black) },
             { "MoveToAssist", new SolidColorBrush(Colors.DarkViolet) },
+            { "MoveToPickUpItem", new SolidColorBrush(Colors.DarkViolet) },
             { "WaitingForStation", new SolidColorBrush(Colors.DarkRed) },
             { "WaitingForMate", new SolidColorBrush(Colors.DarkGreen) },
             { "FinishTask", new SolidColorBrush(Colors.Bisque) },
@@ -63,7 +64,8 @@ namespace RAWSimO.Visualization.Rendering
             { "WaitingForSeeOffAssistance", new SolidColorBrush(Colors.Goldenrod) },
             { "BotAssist", new SolidColorBrush(Colors.DarkRed) },
             { "ChangeDestination", new SolidColorBrush(Colors.DarkViolet) },
-            { "AbortMoveToAndWait", new SolidColorBrush(Colors.DarkViolet) }
+            { "AbortMoveToAndWait", new SolidColorBrush(Colors.DarkViolet) },
+            { "RefillItemState", new SolidColorBrush(Colors.DarkViolet) }
         };
 
         public static readonly Dictionary<LetterColors, Brush> LetterColorBackgroundBrushes = new Dictionary<LetterColors, Brush>() {

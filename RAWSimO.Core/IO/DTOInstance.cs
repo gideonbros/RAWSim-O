@@ -23,6 +23,40 @@ namespace RAWSimO.Core.IO
         /// </summary>
         [XmlAttribute]
         public string Name;
+
+        #region Configurations for heatmap
+        /// <summary>
+        /// Number of waypoint columns in the map
+        /// </summary>
+        [XmlAttribute]
+        public int MapColumnCount;
+        /// <summary>
+        /// Number of waypoint rows in the map
+        /// </summary>
+        [XmlAttribute]
+        public int MapRowCount;
+        /// <summary>
+        /// Horizontal length of the map layout
+        /// </summary>
+        [XmlAttribute]
+        public double MapHorizontalLength;
+        /// <summary>
+        /// Vertical length of the map layout
+        /// </summary>
+        [XmlAttribute] 
+        public double MapVerticalLength;
+        /// <summary>
+        /// Generated bots count used for statistics.
+        /// </summary>
+        [XmlAttribute]
+        public int GeneratedBotsCount;
+        /// <summary>
+        /// Generated mates count used for statistics.
+        /// </summary>
+        [XmlAttribute] 
+        public int GeneratedMatesCount;
+        #endregion
+
         /// <summary>
         /// All robots of this instance.
         /// </summary>
@@ -72,7 +106,16 @@ namespace RAWSimO.Core.IO
             if (value == null)
                 return null;
 
-            DTOInstance dtoInstance = new DTOInstance { Name = value.Name };
+            DTOInstance dtoInstance = new DTOInstance 
+            { 
+                Name = value.Name, 
+                MapColumnCount = value.MapColumnCount, 
+                MapRowCount = value.MapRowCount, 
+                MapHorizontalLength = value.MapHorizontalLength, 
+                MapVerticalLength = value.MapVerticalLength, 
+                GeneratedBotsCount = value.GeneratedBotsCount,
+                GeneratedMatesCount = value.GeneratedMatesCount
+            };
             dtoInstance.Bots = new List<DTOBot>();
             foreach (var bot in value.Bots)
                 dtoInstance.Bots.Add(bot);
@@ -123,6 +166,12 @@ namespace RAWSimO.Core.IO
                 throw new InvalidOperationException("Cannot submit values to instance without a configuration present in the object!");
             // Set name
             instance.Name = Name;
+            instance.MapColumnCount = MapColumnCount;
+            instance.MapRowCount = MapRowCount;
+            instance.MapHorizontalLength = MapHorizontalLength;
+            instance.MapVerticalLength = MapVerticalLength;
+            instance.GeneratedBotsCount = GeneratedBotsCount;
+            instance.GeneratedMatesCount = GeneratedMatesCount;
             // --> HANDLE OVERRIDES
             // If an override is specified, remove the specified amount of input stations
             if (instance.SettingConfig.OverrideConfig != null && instance.SettingConfig.OverrideConfig.OverrideInputStationCount)

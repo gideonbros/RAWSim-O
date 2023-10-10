@@ -39,6 +39,10 @@ namespace RAWSimO.Core.Generator
         private Tile[,] tiles;
         private Tier tier;
         private ZoneConfiguration zoneConfiguration;
+        /// <summary>
+        /// Flag used for signaling if address2ap file exists.
+        /// </summary>
+        private bool _address2apExist;
         // List of waypoints with orientation used for fixed spawning of robots and pickers
         // The last parameter is the index indicating whether this is a robot or picker spawning point
         private List<Tuple<Waypoint, double, int>> spawnWaypoints;
@@ -94,6 +98,19 @@ namespace RAWSimO.Core.Generator
             // Read the csv files with map layout
             instance.MapArray = LoadCsvFile(layoutConfiguration.MapFile).ToList();
             instance.ItemAddressArray = LoadCsvFile(layoutConfiguration.ItemAddressesFile).ToList();
+
+            if (IOHelper.ResourceFileExists(layoutConfiguration.AccessPointsFile, Directory.GetCurrentDirectory()))
+            {
+                instance.AccessPointsArray = LoadCsvFile(layoutConfiguration.AccessPointsFile).ToList();
+                instance.AddressesAccessPointsArray = LoadCsvFile(layoutConfiguration.AddressAccessPointsFile).ToList();
+                _address2apExist = true;
+            } else
+            {
+                _address2apExist = false;
+            }
+            if (IOHelper.ResourceFileExists(layoutConfiguration.PodsQuantitiesFile, Directory.GetCurrentDirectory()))
+                instance.PodsQuantitiesArray = LoadCsvFile(layoutConfiguration.PodsQuantitiesFile).ToList().Select(list => list.Select(int.Parse).ToList()).ToList();
+
             if (instance.SettingConfig.usingMapSortItems)
                 instance.ItemAddressSortOrder = LoadCsvFile(layoutConfiguration.ItemAddressSortOrderFile).ToList();
             if (instance.layoutConfiguration.warehouse.UseZones() && instance.SettingConfig.ZonesEnabled)
@@ -127,6 +144,7 @@ namespace RAWSimO.Core.Generator
             CreateMapFromFile();
             GeneratePods(tier);
             ConnectAllWayPoints(tiles);
+            AddAccessPoints();
             if (baseConfiguration.BotLocations == BotLocations.Fixed) 
                 AddSpawnWaypointsFromFile();
             GenerateRobots(tier, tiles);
@@ -330,7 +348,11 @@ namespace RAWSimO.Core.Generator
             instance.PodCount = (from sublist in instance.MapArray
                                  from str in sublist
                                  where str.Equals("0")
-                                 select str).Count();
+                                 select str).Count() 
+                                 + (from sublist in instance.MapArray
+                                                        from str in sublist
+                                                        where str.StartsWith("L")
+                                                        select str).Count();
             instance.NInputPalletStands = (from sublist in instance.MapArray
                                            from str in sublist
                                            where str.Contains("I")
@@ -357,12 +379,12 @@ namespace RAWSimO.Core.Generator
         /// </summary>
         /// <param name="row"></param>
         /// <param name="col"></param>
-        public void UpdateOrderDictionary(int row, int col)
+        public void UpdateOrderDictionary(int row, int col, Tuple<int, int, int> coeffs)
         {
             string adr = instance.ItemAddressArray[row][col];
             string sortStr = instance.ItemAddressSortOrder[row][col];
             string[] sortParts = sortStr.Split('-');
-            int sortOrder = int.Parse(sortParts[0]) * 10000 + int.Parse(sortParts[1]) * 100 + int.Parse(sortParts[2]);
+            int sortOrder = int.Parse(sortParts[0]) * coeffs.Item1 + int.Parse(sortParts[1]) * coeffs.Item2 + int.Parse(sortParts[2]) * coeffs.Item3;
             instance.addressToSortOrder.Add(adr, sortOrder);
         }
 
@@ -411,6 +433,13 @@ namespace RAWSimO.Core.Generator
             for (int i = 0; i < inputBufferPath.Length; i++) inputBufferPath[i] = Enumerable.Repeat(default(Waypoint), instance.InputQueueSize + 1).ToList();
             for (int i = 0; i < outputBufferPath.Length; i++) outputBufferPath[i] = Enumerable.Repeat(default(Waypoint), instance.OutputQueueSize + 1).ToList();
 
+            Tuple<int, int, int> coeffs = new Tuple<int, int, int>(0, 0, 0);
+
+            if (instance.SettingConfig.usingMapSortItems)
+            {
+                coeffs = layoutConfiguration.warehouse.GetAddressSortCoefficients();
+            }
+
             for (int row = 0; row < instance.MapRowCount; row++)
             {
                 for (int col = 0; col < instance.MapColumnCount; col++)
@@ -419,16 +448,26 @@ namespace RAWSimO.Core.Generator
                     {
                         // create storage pods
                         mapArray[row][col] = "nnnn"; //change '0' to 'nnnn' for direction costs
-                       
+
                         if (instance.SettingConfig.usingMapSortItems)
-                            UpdateOrderDictionary(row, col);
-                        
-                        createTile_StorageLocation(row, col, directions.EastNorthSouthWest, instance.ItemAddressArray[row][col], instance.ZoneLocationsOnMap[row][col]);
+                            UpdateOrderDictionary(row, col, coeffs);
+
+                        createTileStorageLocation(row, col, directions.EastNorthSouthWest, instance.ItemAddressArray[row][col], instance.ZoneLocationsOnMap[row][col]);
                     }
                     else if (mapArray[row][col].Equals("X"))
                     {
                         mapArray[row][col] = "ffff"; //change '0' to 'nnnn' for direction costs
-                        createTile_UnavailableStorage(row, col, instance.ZoneLocationsOnMap[row][col], directions.EastNorthSouthWest);
+                        createTileUnavailableStorage(row, col, instance.ZoneLocationsOnMap[row][col], directions.EastNorthSouthWest);
+                    }
+                    else if (mapArray[row][col].Equals("L"))
+                    {
+                        // create storage pods
+                        mapArray[row][col] = "nnnn"; //change 'L' to 'nnnn' for direction costs
+
+                        if (instance.SettingConfig.usingMapSortItems)
+                            UpdateOrderDictionary(row, col, coeffs);
+
+                        createTileLabelStand(row, col, directions.EastNorthSouthWest, instance.ZoneLocationsOnMap[row][col], instance.ItemAddressArray[row][col]);
                     }
                     else
                     {
@@ -451,13 +490,17 @@ namespace RAWSimO.Core.Generator
                         // create roads
                         // it is either of length 4 ('npfu') or the fourth character is 'Q' ('nfupQ')
                         if (chars.Length == 4 || chars[4].Equals('Q'))
-                            createTile_Road(row, col, instance.ZoneLocationsOnMap[row][col], d);
+                        {
+                            createTileRoad(row, col, instance.ZoneLocationsOnMap[row][col], d);
+                            if (chars.Last().Equals('A') && _address2apExist)
+                                instance.accessPointToLocation[instance.AccessPointsArray[row][col]] = new Tuple<int, int>(row, col);
+                        }
                         else
                         {
                             // add parking locations and I/O pallet stands
                             if (chars[4].Equals('P'))
                             {
-                                createTile_Road(row, col, instance.ZoneLocationsOnMap[row][col], d);
+                                createTileRoad(row, col, instance.ZoneLocationsOnMap[row][col], d);
                                 instance.ParkingLot.Add(tiles[row, col].wp);
                             }
                             if (chars[4].Equals('I'))
@@ -474,12 +517,12 @@ namespace RAWSimO.Core.Generator
                             }
                             if (chars[4].Equals('X'))
                             {
-                                createTile_Road(row, col, instance.ZoneLocationsOnMap[row][col], d, waypointTypes.Unavailable);
+                                createTileRoad(row, col, instance.ZoneLocationsOnMap[row][col], d, waypointTypes.Unavailable);
                             }
                             // queue zones for pallet stands
                             if (chars[4].Equals('i'))
                             {
-                                createTile_Buffer(row, col, d);
+                                createTileBuffer(row, col, d);
                                 string str = new string(chars);
                                 var qList = str.Split('-');
                                 int inputStationId = int.Parse(new string(qList.First().Where(Char.IsDigit).ToArray()));
@@ -488,7 +531,7 @@ namespace RAWSimO.Core.Generator
                             }
                             if (chars[4].Equals('o'))
                             {
-                                createTile_Buffer(row, col, d);
+                                createTileBuffer(row, col, d);
                                 string str = new string(chars);
                                 var qList = str.Split('-');
                                 int outputStationId = int.Parse(new string(qList.First().Where(Char.IsDigit).ToArray()));
@@ -501,6 +544,7 @@ namespace RAWSimO.Core.Generator
                 }
             }
 
+            bool usingDesignatedAccessPoints = layoutConfiguration.warehouse.GetUsingAccessPoints();
 
             // Location manager queue setup
             for (int row = 0; row < instance.MapRowCount; row++)
@@ -511,8 +555,15 @@ namespace RAWSimO.Core.Generator
                     {
                         Waypoint wp = tiles[row, col].wp;
 
-                        // this waypoint is an access point for picking
-                        wp.isAccessPoint = true;
+                        if (usingDesignatedAccessPoints)
+                        {
+                            if (mapArray[row][col].Length > 6 && mapArray[row][col].Substring(6, 1).Equals("A"))
+                                wp.isAccessPoint = true;
+                            else
+                                wp.isAccessPoint = false;
+                        }
+                        else
+                            wp.isAccessPoint = true;
 
                         string direction = mapArray[row][col].Substring(5, 1);
                         // if there is no next queue waypoint for this waypoint continue
@@ -557,7 +608,7 @@ namespace RAWSimO.Core.Generator
             }
         }
 
-        public void createTile_StorageLocation(int row, int column, directions d, string address, string zone)
+        public void createTileStorageLocation(int row, int column, directions d, string address, string zone)
         {
             instance.RowColToXY(row, column, out var X, out var Y);
             Waypoint wp = instance.CreateWaypoint(instance.RegisterWaypointID(), tier, X, Y, true, false, address, zone);
@@ -565,11 +616,11 @@ namespace RAWSimO.Core.Generator
             wp.Column = column;
             if (tiles[row, column] != null)
             {
-                throw new ArgumentException("trying to overwrite an existing waypoint!! At createTile_StorageLocation: tiles[" + row + ", " + column + "] != null");
+                throw new ArgumentException("trying to overwrite an existing waypoint!! At createTileStorageLocation: tiles[" + row + ", " + column + "] != null");
             }
             tiles[row, column] = new Tile(d, wp, waypointTypes.StorageLocation);
         }
-        public void createTile_UnavailableStorage(int row, int column, string zone, directions d)
+        public void createTileUnavailableStorage(int row, int column, string zone, directions d)
         {
             instance.RowColToXY(row, column, out var X, out var Y);
             Waypoint wp = instance.CreateWaypoint(instance.RegisterWaypointID(), tier, X, Y, false, false, zone);
@@ -582,12 +633,28 @@ namespace RAWSimO.Core.Generator
            
             if (tiles[row, column] != null)
             {
-                throw new ArgumentException("trying to overwrite an existing waypoint!! At createTile_Road: tiles[" + row + ", " + column + "] != null");
+                throw new ArgumentException("trying to overwrite an existing waypoint!! At createTileRoad: tiles[" + row + ", " + column + "] != null");
             }
             tiles[row, column] = new Tile(d, wp, waypointTypes.UnavailableStorage);
         }
 
-        public void createTile_Road(int row, int column, string zone, directions d, waypointTypes type = waypointTypes.Road)
+        public void createTileLabelStand(int row, int column, directions d, string zone, string address)
+        {
+            instance.RowColToXY(row, column, out var X, out var Y);
+            Waypoint wp = instance.CreateWaypoint(instance.RegisterWaypointID(), tier, X, Y, true, false, address, zone);
+            wp.Row = row;
+            wp.Column = column;
+            if (tiles[row, column] != null)
+            {
+                throw new ArgumentException("trying to overwrite an existing waypoint!! At createTileStorageLocation: tiles[" + row + ", " + column + "] != null");
+            }
+            tiles[row, column] = new Tile(d, wp, waypointTypes.StorageLocation);
+            
+            // register ID and wp.
+            instance.LabelStands.Add(address, wp); 
+        }
+
+        public void createTileRoad(int row, int column, string zone, directions d, waypointTypes type = waypointTypes.Road)
         {
             instance.RowColToXY(row, column, out var X, out var Y);
             Waypoint wp = instance.CreateWaypoint(instance.RegisterWaypointID(), tier, X, Y, false, false, zone);
@@ -599,11 +666,11 @@ namespace RAWSimO.Core.Generator
             }
             if (tiles[row, column] != null)
             {
-                throw new ArgumentException("trying to overwrite an existing waypoint!! At createTile_Road: tiles[" + row + ", " + column + "] != null");
+                throw new ArgumentException("trying to overwrite an existing waypoint!! At createTileRoad: tiles[" + row + ", " + column + "] != null");
             }
             tiles[row, column] = new Tile(d, wp, type);
         }
-        public void createTile_Road(int row, int column, directions d, waypointTypes type = waypointTypes.Road)
+        public void createTileRoad(int row, int column, directions d, waypointTypes type = waypointTypes.Road)
         {
             instance.RowColToXY(row, column, out var X, out var Y);
             Waypoint wp = instance.CreateWaypoint(instance.RegisterWaypointID(), tier, X, Y, false, false);
@@ -613,7 +680,7 @@ namespace RAWSimO.Core.Generator
             }
             if (tiles[row, column] != null)
             {
-                throw new ArgumentException("trying to overwrite an existing waypoint!! At createTile_Road: tiles[" + row + ", " + column + "] != null");
+                throw new ArgumentException("trying to overwrite an existing waypoint!! At createTileRoad: tiles[" + row + ", " + column + "] != null");
             }
             tiles[row, column] = new Tile(d, wp, type);
         }
@@ -625,7 +692,16 @@ namespace RAWSimO.Core.Generator
             {
                 int waypointIndex = rand.NextInt(potentialWaypoints.Count);
                 Waypoint chosenWaypoint = potentialWaypoints[waypointIndex];
-                Pod pod = instance.CreatePod(instance.RegisterPodID(), tier, chosenWaypoint, layoutConfiguration.PodRadius, layoutConfiguration.PodHorizontalLength, layoutConfiguration.PodVerticalLength, orientationPodDefault, layoutConfiguration.PodCapacity);
+                int capacity = 1000;
+                if (instance.PodsQuantitiesArray.Count > 0)
+                    capacity = instance.PodsQuantitiesArray[chosenWaypoint.GetInfoRow()][chosenWaypoint.GetInfoColumn()];
+
+                Pod pod = instance.CreatePod(
+                    instance.RegisterPodID(), tier, chosenWaypoint, layoutConfiguration.PodRadius,
+                    layoutConfiguration.PodHorizontalLength, layoutConfiguration.PodVerticalLength,
+                    orientationPodDefault,
+                    capacity
+                ); ;
                 potentialWaypoints.RemoveAt(waypointIndex);
             }
         }
@@ -635,7 +711,7 @@ namespace RAWSimO.Core.Generator
             instance.RowColToXY(row, column, out var X, out var Y);
             OutputPalletStand palletStand = instance.CreateOutputPalletStand(
                  instance.RegisterOutputPalletStandID(), tier, X, Y, layoutConfiguration.StationRadius, activationOrderID);
-            createTile_OutputPalletStand(row, column, d, palletStand);
+            createTileOutputPalletStand(row, column, d, palletStand);
             Waypoint wp = tiles[row, column].wp;
             wp.Row = row;
             wp.Column = column;
@@ -647,14 +723,14 @@ namespace RAWSimO.Core.Generator
             instance.RowColToXY(row, column, out var X, out var Y);
             InputPalletStand palletStand = instance.CreateInputPalletStand(
                 instance.RegisterInputPalletStandID(), tier, X, Y, layoutConfiguration.StationRadius, activationOrderID);
-            createTile_InputPalletStand(row, column, d, palletStand);
+            createTileInputPalletStand(row, column, d, palletStand);
             Waypoint wp = tiles[row, column].wp;
             wp.Row = row;
             wp.Column = column;
             palletStand.Queues[wp] = bufferPaths;
         }
 
-        public void createTile_Buffer(int row, int column, directions d)
+        public void createTileBuffer(int row, int column, directions d)
         {
             instance.RowColToXY(row, column, out var X, out var Y);
             Waypoint wp = instance.CreateWaypoint(instance.RegisterWaypointID(), tier, X, Y, false, true);
@@ -662,29 +738,100 @@ namespace RAWSimO.Core.Generator
             wp.Column = column;
             if (tiles[row, column] != null)
             {
-                throw new ArgumentException("trying to overwrite an existing waypoint!! At createTile_Buffer: tiles[" + row + ", " + column + "] != null");
+                throw new ArgumentException("trying to overwrite an existing waypoint!! At createTileBuffer: tiles[" + row + ", " + column + "] != null");
             }
             tiles[row, column] = new Tile(d, wp, waypointTypes.Buffer);
         }
 
-        public void createTile_OutputPalletStand(int row, int column, directions d, OutputPalletStand oStand)
+        public void createTileOutputPalletStand(int row, int column, directions d, OutputPalletStand oStand)
         {
             Waypoint wp = instance.CreateWaypoint(instance.RegisterWaypointID(), tier, oStand, true);
             if (tiles[row, column] != null)
             {
-                throw new ArgumentException("trying to overwrite an existing waypoint!! At createTile_PickStation: tiles[" + row + ", " + column + "] != null");
+                throw new ArgumentException("trying to overwrite an existing waypoint!! At createTileOutputPalletStand: tiles[" + row + ", " + column + "] != null");
             }
             tiles[row, column] = new Tile(d, wp, waypointTypes.PickStation);
         }
 
-        public void createTile_InputPalletStand(int row, int column, directions d, InputPalletStand iStand)
+        public void createTileInputPalletStand(int row, int column, directions d, InputPalletStand iStand)
         {
             Waypoint wp = instance.CreateWaypoint(instance.RegisterWaypointID(), tier, iStand, true);
             if (tiles[row, column] != null)
             {
-                throw new ArgumentException("trying to overwrite an existing waypoint!! At createTile_ReplenishmentStation: tiles[" + row + ", " + column + "] != null");
+                throw new ArgumentException("trying to overwrite an existing waypoint!! At createTileInputPalletStand: tiles[" + row + ", " + column + "] != null");
             }
             tiles[row, column] = new Tile(d, wp, waypointTypes.ReplenishmentStation);
+        }
+        public void AddAccessPoints()
+        {
+            var adrAccess = instance.addressToAccessPoint;
+            for (int row = 0; row < instance.MapRowCount; row++)
+            {
+                for (int col = 0; col < instance.MapColumnCount; col++)
+                {
+                    Waypoint itemWp = tiles[row, col].wp;
+                    if (!String.IsNullOrEmpty(itemWp.Address) && !itemWp.UnavailableStorage)
+                    {
+                        string address = itemWp.Address;
+                        if (_address2apExist)
+                        {
+                            var ap_location = instance.accessPointToLocation[instance.AddressesAccessPointsArray[row][col]];
+                            adrAccess.Add(address, tiles[ap_location.Item1, ap_location.Item2].wp.ID);
+                        } 
+                        // If there is no address2AP file, neighbours will be added as APs.
+                        else
+                        {
+                            // find all pod-free neighbours
+                            List<Waypoint> clearNeighbours = new List<Waypoint>();
+                            foreach (Waypoint newWaypoint in itemWp.Paths)
+                            {
+                                if (!newWaypoint.HasPod && !newWaypoint.UnavailableStorage)
+                                    clearNeighbours.Add(newWaypoint);
+                            }
+                            // find the closest (BFS) access point (queue position)
+                            // this also covers the case when
+                            Waypoint location = pathBFS(clearNeighbours);
+                            // if found, this is the queue point
+                            if (location != null)
+                            {
+                                adrAccess.Add(address, location.ID);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        public Waypoint pathBFS(List<Waypoint> startWps)
+        {
+            Waypoint location = null;
+            Queue<Waypoint> wps = new Queue<Waypoint>();
+            List<Waypoint> visited = new List<Waypoint>();
+            foreach (Waypoint wp in startWps)
+                wps.Enqueue(wp);
+            while (wps.Count > 0)
+            {
+                Waypoint currWp = wps.Dequeue();
+                visited.Add(currWp);
+                if (String.IsNullOrEmpty(currWp.Address) && !currWp.UnavailableStorage)
+                {
+                    if (currWp.isAccessPoint)
+                    {
+                        location = currWp;
+                        break;
+                    }
+                    else
+                    {
+                        foreach (var wp in currWp.Paths)
+                        {
+                            if (!visited.Contains(wp) && !wps.Contains(wp))
+                            {
+                                wps.Enqueue(wp);
+                            }
+                        }
+                    }
+                }
+            }
+            return location;
         }
 
         public void GenerateRobots(Tier tier, Tile[,] tiles)
@@ -698,9 +845,23 @@ namespace RAWSimO.Core.Generator
             //don't generate MateBots if BotsSelfAssist is used
             if (baseConfiguration.BotsSelfAssist)
                 layoutConfiguration.MateBotCount = 0;
-            for (int i = 0; i < layoutConfiguration.MovableStationCount + layoutConfiguration.MateBotCount; i++)
+            int generatedBotsCount = layoutConfiguration.BotsPerPeriod.Count > 0 && instance.SettingConfig.StatisticsSummaryOutputFrequency > 0 ? layoutConfiguration.BotsPerPeriod.Max() : layoutConfiguration.MovableStationCount;
+            int generatedPickersCount = layoutConfiguration.PickersPerPeriod.Count > 0 && instance.SettingConfig.StatisticsSummaryOutputFrequency > 0 ? layoutConfiguration.PickersPerPeriod.Max() : layoutConfiguration.MateBotCount;
+            int generatedRefillingCount = layoutConfiguration.RefillingPerPeriod.Count > 0 && instance.SettingConfig.StatisticsSummaryOutputFrequency > 0 ? layoutConfiguration.RefillingPerPeriod.Max() : layoutConfiguration.RefillingStationCount;
+            
+            if(!instance.SettingConfig.RefillingEnabled)
             {
-                var botType = i < layoutConfiguration.MovableStationCount ? BotType.MovableStation : BotType.MateBot; //first create MovableStations, then MateBots
+                generatedRefillingCount = 0;
+            }
+
+            if (instance.layoutConfiguration.warehouse.bots_as_pickers || baseConfiguration.BotsSelfAssist)
+            {
+                generatedPickersCount = 0;
+            }
+            for (int i = 0; i < generatedBotsCount + generatedRefillingCount + generatedPickersCount; i++)
+            {
+                var botType = i < generatedBotsCount + generatedRefillingCount ? BotType.MovableStation : BotType.MateBot; //first create MovableStations, then MateBots
+                bool isActive = true;
                 // index to determine the set of appropriate spawn waypoints
                 switch (baseConfiguration.BotLocations)
                 {
@@ -737,39 +898,60 @@ namespace RAWSimO.Core.Generator
                 List<string> zones = new List<string>();
                 if (instance.SettingConfig.ZonesEnabled)
                 {
-                    if (i < layoutConfiguration.MovableStationCount)
+                    if (i < generatedBotsCount)
                         zones.Add("none");
                     else
-                        zones = mateBotZones[i - layoutConfiguration.MovableStationCount];
+                        zones = mateBotZones[i - generatedBotsCount];
                 }    
                 else zones.Add("none");
                 double hue = 0;
                 // if this is movable station
-                if (i < layoutConfiguration.MovableStationCount)
+                if (i < generatedBotsCount)
                 {
-                    if (layoutConfiguration.MovableStationCount > 1)
+                    if (generatedBotsCount > 1)
                     {
-                        hue = (200 / (layoutConfiguration.MovableStationCount - 1) * i);
+                        hue = (200 / (generatedBotsCount - 1) * i);
                     }
+                }
+                else if(i < generatedBotsCount + generatedRefillingCount)
+                {
+                    hue = 280; // same color for all refilling bots
                 }
                 // else this is mate bot
                 else
                 {
-                    if (layoutConfiguration.MateBotCount > 1)
+                    if (generatedPickersCount > 1)
                     {
-                        hue = (200 / (layoutConfiguration.MateBotCount - 1) * (i - layoutConfiguration.MovableStationCount));
+                        hue = (200 / (generatedPickersCount - 1)) * (i - (generatedBotsCount + generatedRefillingCount));
                     }
                     else hue = 100;
                 }
+                if (instance.SettingConfig.StatisticsSummaryOutputFrequency > 0)
+                {
+                    if (i >= layoutConfiguration.BotsPerPeriod.First() && i < generatedBotsCount)
+                    {
+                        isActive = false;
+                    }
+                    if (instance.SettingConfig.RefillingEnabled && i >= generatedBotsCount + layoutConfiguration.RefillingPerPeriod.First() 
+                        && i < generatedBotsCount + generatedRefillingCount) 
+                    {
+                        isActive = false;
+                    }
+                    if (i >= generatedBotsCount + generatedRefillingCount + layoutConfiguration.PickersPerPeriod.First())
+                    {
+                        isActive = false;
+                    }
+                }
                 double radius = layoutConfiguration.BotRadius;
-                radius /= i < layoutConfiguration.MovableStationCount ? 1 : 1.3; // decrease the picker raidus a little -> FIX
+                radius /= i < generatedBotsCount + generatedRefillingCount ? 1 : 1.3; // decrease the picker raidus a little -> FIX
                 double maxAcceleration = botType == BotType.MovableStation ? layoutConfiguration.MaxAcceleration : botType == BotType.MateBot ? layoutConfiguration.MaxMateAcceleration : double.NaN;
                 double maxDeceleration = botType == BotType.MovableStation ? layoutConfiguration.MaxDeceleration : botType == BotType.MateBot ? layoutConfiguration.MaxMateDeceleration : double.NaN;
                 double maxVelocity = botType == BotType.MovableStation ? layoutConfiguration.MaxVelocity : botType == BotType.MateBot ? layoutConfiguration.MaxMateVelocity : double.NaN;
                 double turnSpeed = botType == BotType.MovableStation ? layoutConfiguration.TurnSpeed : botType == BotType.MateBot ? layoutConfiguration.MateTurnSpeed : double.NaN;
+                bool isRefilling = i >= generatedBotsCount && i < generatedBotsCount + generatedRefillingCount;
                 Bot bot = instance.CreateBot(instance.RegisterBotID(), tier, Waypoint.X, Waypoint.Y, radius, orientation,
                                                 layoutConfiguration.PodTransferTime, maxAcceleration, maxDeceleration, maxVelocity, turnSpeed,
-                                                layoutConfiguration.CollisionPenaltyTime, botType, hue, zones);
+                                                layoutConfiguration.CollisionPenaltyTime, botType, hue, zones, isActive, isRefilling);
                 Waypoint.AddBotApproaching(bot);
                 bot.CurrentWaypoint = Waypoint;
                 potentialLocations.Remove(Waypoint);
@@ -786,6 +968,8 @@ namespace RAWSimO.Core.Generator
                 baseConfiguration.InventoryConfiguration.FixedInventoryConfiguration.OrderFile = IOHelper.FindResourceFile(baseConfiguration.InventoryConfiguration.FixedInventoryConfiguration.OrderFile, Directory.GetCurrentDirectory());
             if (baseConfiguration.InventoryConfiguration.OrderMode == OrderMode.Fixed && !string.IsNullOrWhiteSpace(baseConfiguration.InventoryConfiguration.FixedInventoryConfiguration.OrderLocationFile))
                 baseConfiguration.InventoryConfiguration.FixedInventoryConfiguration.OrderLocationFile = IOHelper.FindResourceFile(baseConfiguration.InventoryConfiguration.FixedInventoryConfiguration.OrderLocationFile, Directory.GetCurrentDirectory());
+            if (instance.SettingConfig.RefillingEnabled && baseConfiguration.InventoryConfiguration.OrderMode == OrderMode.Fixed && !string.IsNullOrWhiteSpace(baseConfiguration.InventoryConfiguration.FixedInventoryConfiguration.RefillingFile))
+                baseConfiguration.InventoryConfiguration.FixedInventoryConfiguration.RefillingFile = IOHelper.FindResourceFile(baseConfiguration.InventoryConfiguration.FixedInventoryConfiguration.RefillingFile, Directory.GetCurrentDirectory());
         }
 
         public List<List<Waypoint>> getWaypointsForInitialRobotPositions(Tile[,] tiles)

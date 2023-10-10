@@ -100,6 +100,10 @@ namespace RAWSimO.Core.Elements
         /// </summary>
         public bool IsQueueing = false;
         /// <summary>
+        /// A flag that indicates that the robot is currently active in swarm.
+        /// </summary>
+        public bool IsActive = true;
+        /// <summary>
         /// a flag that indicates if a bot has assitance assigned to it's task
         /// </summary>
         public bool HasAssistance => Assistant != null;
@@ -203,7 +207,7 @@ namespace RAWSimO.Core.Elements
             pod.InUse = true;
             this.Pod = pod;
             BlockedUntil = currentTime + this.PodTransferTime;
-            this.StatNumberOfPickups++;
+
 
             // Notify the instance about the pickup operation
             Instance.NotifyPodPickup(pod, this);
@@ -269,6 +273,10 @@ namespace RAWSimO.Core.Elements
         /// </summary>
         public int StatNumberOfPickups;
         /// <summary>
+        /// The number of printers done so far.
+        /// </summary>
+        public int StatNumberOfPrinters;
+        /// <summary>
         /// The number of set downs done so far.
         /// </summary>
         public int StatNumberOfSetdowns;
@@ -280,6 +288,10 @@ namespace RAWSimO.Core.Elements
         /// The distance traveled by this bot so far.
         /// </summary>
         public double StatDistanceTraveled;
+        /// <summary>
+        /// The pallet distance traveled by this bot so far.
+        /// </summary>
+        public double StatPalletDistanceTraveled;
         /// <summary>
         /// The assigned task for this bot so far.
         /// </summary>
@@ -369,9 +381,11 @@ namespace RAWSimO.Core.Elements
         public void ResetStatistics()
         {
             StatNumberOfPickups = 0;
+            StatNumberOfPrinters = 0;
             StatNumberOfSetdowns = 0;
             StatNumCollisions = 0;
             StatDistanceTraveled = 0;
+            StatPalletDistanceTraveled = 0;
             StatDistanceEstimated = 0;
             StatDistanceRequestedOptimal = 0;
             StatAssignedTasks = 0;

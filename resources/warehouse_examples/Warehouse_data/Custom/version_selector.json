@@ -1,0 +1,16 @@
+{
+  "warehouse_version_index": 1,
+  "orders_version_index": 0,
+  "zones_index": -1,
+  "spawn_locations": 0,
+  "warehouse_versions": [
+    "default",
+    "one_way"
+  ],
+  "orders_versions": [
+    "default"
+  ],
+  "zones_versions": [
+    "zones_3"
+  ]
+}

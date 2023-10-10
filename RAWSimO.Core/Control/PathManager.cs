@@ -2,6 +2,7 @@
 //#define DEBUGINTRACTABLEREQUESTS
 
 using RAWSimO.Core.Bots;
+using RAWSimO.Core.Configurations;
 using RAWSimO.Core.Elements;
 using RAWSimO.Core.Helper;
 using RAWSimO.Core.Interfaces;
@@ -196,7 +197,16 @@ namespace RAWSimO.Core.Control
                             Instance.XYToRowCol(waypointFrom.X, waypointFrom.Y, out row, out col);
                             char[] costs = Instance.MapArray[row][col].ToCharArray();
                             char cost_letter = waypointTo.X > waypointFrom.X ? costs[0] : waypointTo.Y > waypointFrom.Y ? costs[1] : waypointTo.Y < waypointFrom.Y ? costs[2] : waypointTo.X < waypointFrom.X ? costs[3] : '!';
-                            double cost = cost_letter == 'n' ? Instance.SettingConfig.NeutralCost : cost_letter == 'p' ? Instance.SettingConfig.PreferredCost : cost_letter == 'u' ? Instance.SettingConfig.UnpreferredCost : double.PositiveInfinity;
+                            Tuple<double, double, double> MapCostCoeffs = Instance.layoutConfiguration.warehouse.GetMapCostCoefficients();
+                            double cost = 0.0;
+                            if (MapCostCoeffs.Item1 == 0.0 && MapCostCoeffs.Item2 == 0.0 && MapCostCoeffs.Item3 == 0.0)
+                            {
+                                cost = cost_letter == 'n' ? Instance.SettingConfig.NeutralCost : cost_letter == 'p' ? Instance.SettingConfig.PreferredCost : cost_letter == 'u' ? Instance.SettingConfig.UnpreferredCost : double.PositiveInfinity;
+                            }
+                            else
+                            {
+                                cost = cost_letter == 'n' ? MapCostCoeffs.Item2 : cost_letter == 'p' ? MapCostCoeffs.Item1 : cost_letter == 'u' ? MapCostCoeffs.Item3 : double.PositiveInfinity;
+                            }
                             Edge edge = new Edge
                             {
                                 From = _waypointIds[waypointFrom],
@@ -207,6 +217,7 @@ namespace RAWSimO.Core.Control
                                 ToNodeInfo = _nodeMetaInfo[waypointTo],
                                 Cost = cost,
                             };
+
                             outgoingEdges[edgeId++] = edge;
                         }
                     }
@@ -246,6 +257,11 @@ namespace RAWSimO.Core.Control
                 _nodeMetaInfo[lockedWP].IsLocked = true;
             foreach (var obstacleWP in podPositions)
                 _nodeMetaInfo[obstacleWP].IsObstacle = true;
+            // Unavailable storage is also an obstacle
+            foreach (var tier in Instance.WaypointGraph.GetWayPoints())
+                foreach (var waypoint in tier.Value)
+                    if (waypoint.UnavailableStorage)
+                        _nodeMetaInfo[waypoint].IsObstacle = true;
             // Get blocked nodes
             // Prepare all locked nodes
             var blockedNodes = new HashSet<int>(
@@ -341,6 +357,95 @@ namespace RAWSimO.Core.Control
                 startWP = endWP;
             }
 
+            return traversalTime + currentTime;
+        }
+
+        /// <summary>
+        /// Predicts arrival time of <paramref name="bot"/> to <paramref name="goal"/>
+        /// </summary>
+        /// <param name="bot">Bot for which prediction is needed</param>
+        /// <param name="goal"><see cref="Waypoint"/> to where <paramref name="bot"/> is headed</param>
+        /// <param name="findNewPath">bool indicating if new path will be used</param>
+        /// <returns>Predicted time of arrival</returns>
+        public double PredictArrivalTimeHeuristics(BotNormal bot, Waypoint goal, bool findNewPath)
+        {
+            foreach (var nodeInfo in _nodeMetaInfo)
+            {
+                nodeInfo.Value.IsLocked = false;
+            }
+            // Get way points
+            Waypoint nextWaypoint = bot.NextWaypoint ?? bot.CurrentWaypoint;
+            Waypoint finalDestination = goal;
+            Waypoint destination = finalDestination;
+
+            double currentTime = Instance.Controller.CurrentTime;
+
+            // Create reservationToNextNode
+            var reservationsToNextNode = findNewPath ? new List<ReservationTable.Interval>() :
+                                                       new List<ReservationTable.Interval>(_reservations[bot]);
+            if (reservationsToNextNode.Count > 0)
+                reservationsToNextNode.RemoveAt(reservationsToNextNode.Count - 1); //remove last blocking node
+
+            // Create agent
+            var agent = new Agent
+            {
+                ID = bot.ID,
+                NextNode = _waypointIds[nextWaypoint],
+                ReservationsToNextNode = reservationsToNextNode,
+                ArrivalTimeAtNextNode = (reservationsToNextNode.Count == 0) ? currentTime : Math.Max(currentTime, reservationsToNextNode[reservationsToNextNode.Count - 1].End),
+                OrientationAtNextNode = bot.GetTargetOrientation(),
+                DestinationNode = _waypointIds[destination],
+                FinalDestinationNode = _waypointIds[finalDestination],
+                Path = bot.Path, //path reference => will be filled
+                FixedPosition = bot.hasFixedPosition(),
+                Resting = bot.IsResting(),
+                CanGoThroughObstacles = false,
+                Physics = new Physics(bot.Physics), //copy object to avoid messing up member values
+                RequestReoptimization = bot.RequestReoptimization,
+                Queueing = bot.IsQueueing,
+                NextNodeObject = nextWaypoint,
+                DestinationNodeObject = destination,
+                IsMate = bot is MateBot ? true : false,
+                DimensionlessBots = Instance.SettingConfig.DimensionlessBots
+            };
+
+            Waypoint actualCurrentWP = Instance.FindWpFromXY(bot.X, bot.Y);
+
+            //get A* for bot/agent
+            ReverseResumableAStar astar = null;
+            if (PathFinder is FARMethod)
+            {
+                astar = (PathFinder as FARMethod).GetRRAstar(agent, findNewPath);
+                astar.Search(_waypointIds[actualCurrentWP]);
+            }
+            //
+            //Arrival prediction algorithm
+            //
+            double traversalTime = 0;
+            double rotationTime = Instance.layoutConfiguration.TurnSpeed / 4;
+            Waypoint startWP = actualCurrentWP;
+            List<int> segment;
+
+            //calculate time spent on each path segment
+            int i = 0;
+            // Console.WriteLine($"Path size === {astar.getPathAsNodeList(startWP.ID).Count}");
+            while (true)
+            {
+                //get the next path segment
+                segment = astar.NodesUntilNextTurn(startWP.ID);
+                //if there are no more segments, break out
+                if (!segment.Any())
+                    break;
+                i++;
+                Waypoint endWP = _waypointIds[segment.Last()];
+                //add the time needed to traverse the segment
+                traversalTime += agent.Physics.getTimeNeededToMove(0, startWP.GetDistance(endWP));
+                //add the time needed to rotate at the end of the segment
+                traversalTime += rotationTime;
+                //prepare variable values for the next segment
+                startWP = endWP;
+            }
+            UpdateLocksAndObstacles();
             return traversalTime + currentTime;
         }
 
@@ -884,12 +989,13 @@ namespace RAWSimO.Core.Control
                 /// Tries to add additional waypoints to the queue (in case when robot is overtaken)
                 /// </summary>
                 /// <returns> True if entry was shifted </returns>
-                public bool TryUpdatingQueue()
+                public bool TryUpdatingQueue(bool clear)
                 {
                     bool updated = false;
+                    List<Waypoint> checkedWps = new List<Waypoint>();
                     for (Waypoint wp = lastWp.nextQueueWaypoint; wp != null; wp = wp.nextQueueWaypoint)
                     {
-                        _queueWps.AddLast(wp);
+                        checkedWps.Add(wp);
                         if (_tables.GetOccupation(wp) == -1 && _tables.GetReservation(wp) == -1)
                         {
                             updated = true;
@@ -898,12 +1004,17 @@ namespace RAWSimO.Core.Control
                     }
                     if (updated)
                     {
+                        // extend the queue with checked wps
+                        foreach (var wp in checkedWps)
+                            _queueWps.AddLast(wp);
                         _tables.SetReservation(_botID, lastWp);
                         return true;
                     }
                     else
                     {
-                        _queueWps.Clear();
+                        if (clear)
+                            _queueWps.Clear();
+
                         return false;
                     }
                 }
@@ -1020,22 +1131,15 @@ namespace RAWSimO.Core.Control
                 // Logging
                 // NOTE: instance used to access MateScheduler and the print function for loggger
                 Instance = instance;
-                //loggerPath = instance.SettingConfig.LocationManagerLoggerPath;
-                loggerPath = "log.txt";
-                try
-                {
-                    if (Logger != null)
-                        Logger.Close();
-                }
-                catch (System.NullReferenceException ex)
-                {
-                   Console.WriteLine("Problems"); 
-                }
-                Logger = new System.IO.StreamWriter(loggerPath);
-                //tempLoggerPath = instance.SettingConfig.TempLoggerPath;
-                tempLoggerPath = "temp_log.txt";
+                if (Logger != null)
+                    Logger.Close();
+                loggerPath = Instance.layoutConfiguration.InitSwarmLog("Location_Manager", "LM", out Logger);
+                System.IO.StreamWriter tmpLogger = null;
+                tempLoggerPath = Instance.layoutConfiguration.InitSwarmLog("Location_Manager_temp", "LMtmp", out tmpLogger);
+                tmpLogger.Close();
                 logged = false;
-                loggerLineCount = 0;
+                // 4 -> due to 'START LOGGER'
+                loggerLineCount = 4;
                 outputCount = 0;
 
                 botQueues = new Dictionary<BotNormal, BotQueueClass>();
@@ -1126,38 +1230,71 @@ namespace RAWSimO.Core.Control
                             try
                             {
                                 BotNormal prevBot = tables.GetBotReservation(nextWp);
-                                // set to new reservation
-                                tables.SetReservation(bot.ID, nextWp);
-                                if (prevBot != null)
+                                if (prevBot == null)
+                                {
+                                    // set to new reservation
+                                    tables.SetReservation(bot.ID, nextWp);
+                                    bot.StateQueueEnqueueFront(new ChangeDestination(nextWp));
+                                    log(String.Format("Bot {0}: [{1}] -> [{2}] move to next (free)", bot.ID, lastWp.ID, nextWp.ID));
+                                }
+                                // if another robot reserved next position and that robot is not queueing
+                                // NOTE: due to wrong queuing definition robot could move away from queue
+                                // leave previous position and only after arrive at the next...
+                                // In the meantime, another robot can overtake him and then robot effectively
+                                // becomes arriving robot due to queue extension (nextWP -> lastWP)
+                                // If robot is queuing -> overtaking is not allowed
+                                else if (prevBot != null && !queueingBots.Contains(prevBot))
                                 {
                                     prevID = prevBot.ID;
-                                    // update queue of prevBot now that reserved position has been changed
-                                    bool updated = botQueues[prevBot].TryUpdatingQueue();
-                                    if (updated)
+                                    bool updated = false;
+                                    // NOTE: Different approach for overtaking when using optimization client
+                                    // only overtake the robot if there is enough free space for the overtaken
+                                    // robot to still arrive in the queue
+                                    if (prevBot.Instance.SettingConfig.usingOptimizationClient)
                                     {
-                                        // if update successful, just change the location
-                                        prevBot.StateQueueEnqueueFront(new ChangeDestination(botQueues[prevBot].lastWp));
-                                        log(String.Format("Bot {0}: [{2}] <- [{1}] extended queue", prevBot.ID, nextWp.ID, botQueues[prevBot].lastWp.ID));
+                                        updated = botQueues[prevBot].TryUpdatingQueue(false);
+                                        if (updated)
+                                        {
+                                            prevBot.StateQueueEnqueueFront(new ChangeDestination(botQueues[prevBot].lastWp));
+                                            log(String.Format("Bot {0}: [{2}] <- [{1}] extended queue", prevBot.ID, nextWp.ID, botQueues[prevBot].lastWp.ID));
+                                            tables.SetReservation(bot.ID, nextWp);
+                                            bot.StateQueueEnqueueFront(new ChangeDestination(nextWp));
+                                            log(String.Format("Bot {0}: [{1}] -> [{2}] move to next (overtake)", bot.ID, lastWp.ID, nextWp.ID));
+                                        }
+
                                     }
                                     else
                                     {
-                                        // otherwise reset the partial task and remove bot (goes to parking or some other item)
-                                        // cancel current move to and wait, and return same PPT
-                                        // legacy that we need to return PPT
-                                        prevBot.StateQueueEnqueueFront(new AbortMoveToAndWait(botQueues[prevBot]._destWP));
-                                        // Important to also clear the assignments!
-                                        if (prevBot.Instance.SettingConfig.BotsSelfAssist)
-                                            prevBot.Instance.Controller.MateScheduler.itemTable[prevBot.ID].ClearCurrentLocation();
+                                        // set to new reservation
+                                        tables.SetReservation(bot.ID, nextWp);
+                                        // update queue of prevBot now that reserved position has been changed
+                                        updated = botQueues[prevBot].TryUpdatingQueue(true);
+                                        if (updated)
+                                        {
+                                            // if update successful, just change the location
+                                            prevBot.StateQueueEnqueueFront(new ChangeDestination(botQueues[prevBot].lastWp));
+                                            log(String.Format("Bot {0}: [{2}] <- [{1}] extended queue", prevBot.ID, nextWp.ID, botQueues[prevBot].lastWp.ID));
+                                        }
+                                        else
+                                        {
+                                            // otherwise reset the partial task and remove bot (goes to parking or some other item)
+                                            // cancel current move to and wait, and return same PPT
+                                            // legacy that we need to return PPT
+                                            prevBot.StateQueueEnqueueFront(new AbortMoveToAndWait(botQueues[prevBot]._destWP));
+                                            // Important to also clear the assignments!
+                                            if (prevBot.Instance.SettingConfig.BotsSelfAssist)
+                                                prevBot.Instance.Controller.MateScheduler.itemTable[prevBot.ID].ClearCurrentLocation();
 
-                                        // bot was in the arriving list so we have to remove it
-                                        arrivingBots.Remove(prevBot);
-                                        // removed also from queueing bots (PPT returned)
-                                        botQueues.Remove(prevBot);
-                                        log(String.Format("Bot {0}: [{1}] -> [X] canceled queue", prevBot.ID, nextWp.ID));
+                                            // bot was in the arriving list so we have to remove it
+                                            arrivingBots.Remove(prevBot);
+                                            // removed also from queueing bots (PPT returned)
+                                            botQueues.Remove(prevBot);
+                                            log(String.Format("Bot {0}: [{1}] -> [X] canceled queue", prevBot.ID, nextWp.ID));
+                                        }
+                                        bot.StateQueueEnqueueFront(new ChangeDestination(nextWp));
+                                        log(String.Format("Bot {0}: [{1}] -> [{2}] move to next (overtake)", bot.ID, lastWp.ID, nextWp.ID));
                                     }
                                 }
-                                bot.StateQueueEnqueueFront(new ChangeDestination(nextWp));
-                                log(String.Format("Bot {0}: [{1}] -> [{2}] move to next ", bot.ID, lastWp.ID, nextWp.ID));
                             }
                             catch (KeyNotFoundException ex)
                             {
@@ -1481,12 +1618,12 @@ namespace RAWSimO.Core.Control
                 QueueWaypoint = queueWaypoint;
                 Queue = queue;
                 _queueWaypointIndices = new Dictionary<Waypoint, int>();
+                Queue.RemoveAll(w => w == null);
                 for (int i = 0; i < Queue.Count; i++)
                 {
                     _queueWaypointIndices[Queue[i]] = i;
                     Queue[i].QueueManager = this;
                 }
-                Queue.RemoveAll(w => w == null);
                 LockedWaypoints = new Dictionary<Waypoint, Bot>();
 
                 _pathManager = pathManager;

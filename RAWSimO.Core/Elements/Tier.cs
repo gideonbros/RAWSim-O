@@ -27,9 +27,9 @@ namespace RAWSimO.Core.Elements
         internal Tier(Instance instance, double length, double width) : base(instance)
         { 
           Length = length; 
-          Width = width; 
-          BotQuadTree = new QuadTree<Bot>(Length, Width, instance.layoutConfiguration.HorizontalWaypointDistance / 5, instance.layoutConfiguration.VerticalWaypointDistance / 5); 
-          PodQuadTree = new QuadTree<Pod>(Length, Width, instance.layoutConfiguration.HorizontalWaypointDistance / 5, instance.layoutConfiguration.VerticalWaypointDistance / 5); 
+          Width = width;
+          BotQuadTree = new QuadTree<Bot>(Length, Width, instance.layoutConfiguration?.HorizontalWaypointDistance / 5 ?? double.Epsilon, instance.layoutConfiguration?.VerticalWaypointDistance / 5 ?? double.Epsilon);
+          PodQuadTree = new QuadTree<Pod>(Length, Width, instance.layoutConfiguration?.HorizontalWaypointDistance / 5 ?? double.Epsilon, instance.layoutConfiguration?.VerticalWaypointDistance / 5 ?? double.Epsilon);
         }
 
         #endregion

@@ -1015,6 +1015,7 @@ namespace RAWSimO.Visualization.Rendering
         private TextBlock _blockOrientation;
         private TextBlock _blockCapacity;
         private TextBlock _blockCapacityReserved;
+        private TextBlock _blockStockCapacity;
         private TextBlock _blockStorageTag;
         private TreeViewItem _treeItemContent;
         private TreeViewItem _root;
@@ -1030,10 +1031,8 @@ namespace RAWSimO.Visualization.Rendering
             _blockXY.Text = _pod.GetInfoCenterX().ToString(IOConstants.EXPORT_FORMAT_SHORT, IOConstants.FORMATTER) + "/" + _pod.GetInfoCenterY().ToString(IOConstants.EXPORT_FORMAT_SHORT, IOConstants.FORMATTER);
             _blockOrientation.Text = Transformation2D.ProjectOrientation(_pod.GetInfoOrientation()).ToString(IOConstants.EXPORT_FORMAT_SHORT, IOConstants.FORMATTER) + "°";
             _blockCapacity.Text = _pod.GetInfoCapacityUsed().ToString(IOConstants.EXPORT_FORMAT_SHORT, IOConstants.FORMATTER) + "/" + _pod.GetInfoCapacity().ToString(IOConstants.EXPORT_FORMAT_SHORT, IOConstants.FORMATTER);
-            _blockCapacityReserved.Text = _pod.GetInfoCapacityReserved().ToString(IOConstants.EXPORT_FORMAT_SHORT, IOConstants.FORMATTER) + "/" + _pod.GetInfoCapacity().ToString(IOConstants.EXPORT_FORMAT_SHORT, IOConstants.FORMATTER);
+           _blockStockCapacity.Text = _pod.GetInfoStockCapacity().ToString(IOConstants.EXPORT_FORMAT_SHORT, IOConstants.FORMATTER);
             _blockStorageTag.Text = _pod.InfoTagPodStorageInfo;
-            _blockReadyForRefill.Text = _pod.GetInfoReadyForRefill().ToString();
-
             // Update content info
             if (_pod.GetInfoContentChanged())
                 _contentManager.UpdateContentInfo();
@@ -1126,17 +1125,16 @@ namespace RAWSimO.Visualization.Rendering
                 };
                 capacityPanel.Children.Add(_blockCapacity);
                 _root.Items.Add(capacityPanel);
-                // Add capacity reserved
-                WrapPanel capacityReservedPanel = new WrapPanel { Orientation = Orientation.Horizontal };
-                capacityReservedPanel.Children.Add(new TextBlock { Text = "Capacity reserved: ", TextAlignment = TextAlignment.Right, MinWidth = _infoPanelLeftColumnWidth });
-                _blockCapacityReserved = new TextBlock
+                // Add stock capacity
+                WrapPanel stockCapacityPanel = new WrapPanel { Orientation = Orientation.Horizontal };
+                stockCapacityPanel.Children.Add(new TextBlock { Text = "Stock capacity: ", TextAlignment = TextAlignment.Right, MinWidth = _infoPanelLeftColumnWidth });
+                _blockStockCapacity = new TextBlock
                 {
-                    Text = _pod.GetInfoCapacityReserved().ToString(IOConstants.EXPORT_FORMAT_SHORT, IOConstants.FORMATTER) + "/" +
-                    _pod.GetInfoCapacity().ToString(IOConstants.EXPORT_FORMAT_SHORT, IOConstants.FORMATTER),
+                    Text = _pod.GetInfoStockCapacity().ToString(IOConstants.EXPORT_FORMAT_SHORT, IOConstants.FORMATTER),
                     MinWidth = _infoPanelRightColumnWidth,
                 };
-                capacityReservedPanel.Children.Add(_blockCapacityReserved);
-                _root.Items.Add(capacityReservedPanel);
+                stockCapacityPanel.Children.Add(_blockStockCapacity);
+                _root.Items.Add(stockCapacityPanel);
                 // Add capacity reserved
                 WrapPanel storageTagPanel = new WrapPanel { Orientation = Orientation.Horizontal };
                 storageTagPanel.Children.Add(new TextBlock { Text = "Storage tag: ", TextAlignment = TextAlignment.Right, MinWidth = _infoPanelLeftColumnWidth });
@@ -1147,16 +1145,6 @@ namespace RAWSimO.Visualization.Rendering
                 };
                 storageTagPanel.Children.Add(_blockStorageTag);
                 _root.Items.Add(storageTagPanel);
-                // Add ReadyForRefill
-                WrapPanel readyForRefillPanel = new WrapPanel { Orientation = Orientation.Horizontal };
-                readyForRefillPanel.Children.Add(new TextBlock { Text = "Ready for refill: ", TextAlignment = TextAlignment.Right, MinWidth = _infoPanelLeftColumnWidth });
-                _blockReadyForRefill = new TextBlock
-                {
-                    Text = _pod.GetInfoReadyForRefill().ToString(),
-                    MinWidth = _infoPanelRightColumnWidth,
-                };
-                readyForRefillPanel.Children.Add(_blockReadyForRefill);
-                _root.Items.Add(readyForRefillPanel);
                 // Add content
                 if (_treeItemContent == null)
                 {

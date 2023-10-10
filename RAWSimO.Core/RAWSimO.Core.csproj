@@ -76,8 +76,8 @@
       <HintPath>..\packages\Microsoft.Office.Interop.Excel.15.0.4795.1000\lib\net20\Microsoft.Office.Interop.Excel.dll</HintPath>
       <EmbedInteropTypes>True</EmbedInteropTypes>
     </Reference>
-    <Reference Include="Newtonsoft.Json, Version=12.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
-      <HintPath>..\packages\Newtonsoft.Json.12.0.3\lib\net45\Newtonsoft.Json.dll</HintPath>
+    <Reference Include="Newtonsoft.Json, Version=13.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
+      <HintPath>..\packages\Newtonsoft.Json.13.0.1\lib\net45\Newtonsoft.Json.dll</HintPath>
     </Reference>
     <Reference Include="SpreadsheetLight, Version=3.4.11.0, Culture=neutral, PublicKeyToken=32fbb46dc1730c57, processorArchitecture=MSIL">
       <HintPath>..\packages\SpreadsheetLight.3.4.11\lib\net40\SpreadsheetLight.dll</HintPath>
@@ -101,6 +101,7 @@
     <Compile Include="Bots\BotCrashHandler.cs" />
     <Compile Include="Bots\BotNormalPrivateClasses.cs" />
     <Compile Include="Bots\BotStates.cs" />
+    <Compile Include="Configurations\MethodConfigurationsPSM.cs" />
     <Compile Include="Configurations\MethodConfigurationShared.cs" />
     <Compile Include="Configurations\MethodConfigurationsPC.cs" />
     <Compile Include="Configurations\MethodConfigurationsIS.cs" />
@@ -137,6 +138,10 @@
     <Compile Include="Control\Defaults\OrderBatching\RemoteOrderManager.cs" />
     <Compile Include="Control\Defaults\OrderBatching\WorkloadOrderManager.cs" />
     <Compile Include="Control\Defaults\OrderBatching\GreedyOrderManager.cs" />
+    <Compile Include="Control\Defaults\PalletStandManagment\PalletStandManager.cs" />
+    <Compile Include="Control\Defaults\PalletStandManagment\PSAdvancedManager.cs" />
+    <Compile Include="Control\Defaults\PalletStandManagment\PSEuclideanGreedyManager.cs" />
+    <Compile Include="Control\Defaults\PalletStandManagment\PSOriginalManager.cs" />
     <Compile Include="Control\Defaults\PodStorage\CachePodStorageManager.cs" />
     <Compile Include="Control\Defaults\PodStorage\UtilityPodStorageManager.cs" />
     <Compile Include="Control\Defaults\Repositioning\CacheDropoffRepositioningManager.cs" />

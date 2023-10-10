@@ -304,6 +304,10 @@ namespace RAWSimO.Core.Control
                     if (node.Value == mate)//mb is registered as an assistant somewhere else, sanitize
                     {
                         RemoveAssistanceTo(bot, mate, PositionIdx, aborted);
+                        // When using optimization we have fixed schedule determined by the
+                        // optimization module. This schedule can can change upon assistance completion so
+                        // next location is added only after robot opens it.
+                        // if (!aborted && !bot.Instance.SettingConfig.usingOptimizationClient)
                         if (!aborted)
                         {
                             AddNextLocation(bot);
@@ -331,6 +335,9 @@ namespace RAWSimO.Core.Control
             /// <param name="waypoint">last <see cref="Waypoint"/> that was registered</param>
             protected virtual void AddFutureLocation(Bot bot, Waypoint waypoint, int locationOffset = 0)
             {
+                // Don't use FutureLocations when using optimization client.
+                if (Instance.SettingConfig.usingOptimizationClient)
+                    return;
                 //if bot has less assistance assigned then it's allowed prediction depth, add future location
                 //Also, future locations will be added only if we are not using see-off scheduling strategy
                 if (!AssistanceLocations.ContainsKey(bot) || AssistanceLocations[bot].Count < PredictionDepth)

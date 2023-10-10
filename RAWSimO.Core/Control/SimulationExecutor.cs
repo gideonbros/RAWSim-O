@@ -33,7 +33,13 @@ namespace RAWSimO.Core.Control
             instance.Controller.Update(1.0 / instance.SettingConfig.SimulationUpdateRate, double.MaxValue);
             instance.StopExecutionTiming();
             instance.LogDefault(">>> Simulation finished - writing results ...");
-            instance.WriteStatistics();
+            //if (instance.SettingConfig.StatisticsSummaryOutputFrequency <= 0)
+            //{
+            //    instance.LogDefault(">>> Writing complete statistics summary...");
+            //    if (instance.SettingConfig.StatisticsSummaryFile != null)
+            //        instance.Controller.StatisticsManager.WriteStatisticsSummary(instance.SettingConfig.StatisticsSummaryFile);
+            //}
+            instance.LogDefault(">>> Writing complete statistics summary...");
             if (instance.SettingConfig.StatisticsSummaryFile != null)
                 instance.Controller.StatisticsManager.WriteStatisticsSummary(instance.SettingConfig.StatisticsSummaryFile);
             instance.LogDefault(">>> Results written");

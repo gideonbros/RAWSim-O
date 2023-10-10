@@ -20,3 +20,4 @@ resources/*
 !resources/.keep
 !resources/warehouses
 statistics/*
+*.code-workspace

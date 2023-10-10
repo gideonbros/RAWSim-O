@@ -89,12 +89,11 @@ namespace RAWSimO.Core.Items
             return items;
         }
 
-        public string GetLocation() { return location; }
-        public int GetRow() { return row; }
-        public int GetCol() { return col; }
+        public string GetAddress() { return _address; }
+        public void SetAddress(string address) { _address = address; }
+        public string GetAddressWithoutSufix() { return Order.RemoveSufixFromAddress(_address); }
         #endregion
 
-        public string location;
-        public int row, col;
+        private string _address;
     }
 }

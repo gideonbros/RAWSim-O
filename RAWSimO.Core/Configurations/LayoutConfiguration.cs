@@ -1,4 +1,4 @@
-﻿using RAWSimO.Core.IO;
+using RAWSimO.Core.IO;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -35,6 +35,9 @@ namespace RAWSimO.Core.Configurations
         public void OverrideData()
         {
             MapFile = warehouse.GetMapFilePath();
+            AccessPointsFile = warehouse.GetAccessPointsFilePath();
+            AddressAccessPointsFile = warehouse.GetAddressesAccessPointsFilePath();
+            PodsQuantitiesFile = warehouse.GetPodsQuantitiesFilePath();
             ItemAddressesFile = warehouse.GetAddressesFilePath();
             ItemAddressSortOrderFile = warehouse.GetAddressesSortFilePath();
             if (warehouse.UseZones())
@@ -54,8 +57,56 @@ namespace RAWSimO.Core.Configurations
             MaxMateAcceleration = warehouse.human_max_acceleration;
             MaxDeceleration = warehouse.vehicle_max_deceleration;
             MaxMateDeceleration = warehouse.human_max_deceleration;
+            TurnSpeed = warehouse.vehicle_turn_time;
+
+            // If enabled, this should change how many of bots/pickers/reffilingBots
+            // are used (moving) in the simulator in specific period of time...
+            BotsPerPeriod = warehouse.bots_per_period;
+            PickersPerPeriod = warehouse.pickers_per_period;
+            RefillingPerPeriod = warehouse.refilling_per_period;
         }
 
+        /// <summary>
+        /// Initialize logger for the given simulator component.
+        /// Loggers are organized in subfolders and separate files for each run.
+        /// </summary>
+        /// <param name="loggerName">Name of the logger subfolder</param>
+        /// <returns></returns>
+        public string InitSwarmLog(string loggerName, string marker, out System.IO.StreamWriter Logger)
+        {
+            string logFilePath = GetLoggerPath(loggerName, marker);
+            Logger = new System.IO.StreamWriter(logFilePath);
+            //Logger.Write(String.Format("\n\nSTARTING LOGGER [{0}] \n\n", time));
+            Logger.Write("\n\nSTARTING LOGGER\n\n");
+            return logFilePath;
+        }
+
+        public string GetLoggerPath(string loggerName, string marker)
+        {
+            string currentDirectory = System.IO.Directory.GetCurrentDirectory();
+            string logFolder = "logs";
+            string logFolderPath = System.IO.Path.Combine(currentDirectory, logFolder);
+            if (!System.IO.Directory.Exists(logFolderPath))
+                System.IO.Directory.CreateDirectory(logFolderPath);
+            string loggerNamePath = System.IO.Path.Combine(logFolderPath, loggerName);
+            if (!System.IO.Directory.Exists(loggerNamePath))
+                System.IO.Directory.CreateDirectory(loggerNamePath);
+            string date = DateTime.UtcNow.ToString("yyyy-MM-dd");
+            string dateFolderPath = System.IO.Path.Combine(loggerNamePath, date);
+            if (!System.IO.Directory.Exists(dateFolderPath))
+                System.IO.Directory.CreateDirectory(dateFolderPath);
+
+            DateTime currentTime = DateTime.Now;
+            string time = currentTime.ToString("HH-mm-ss");
+            string logFileName = String.Format("{0}_{1}_{2}_{3}_{4}.txt",
+                time,
+                warehouse.name.PadRight(4, '-').Substring(0,4),
+                MovableStationCount,
+                MateBotCount,
+                marker);
+            string logFilePath = System.IO.Path.Combine(dateFolderPath, logFileName);
+            return logFilePath;
+        }
 
         #region member variables 
 
@@ -71,6 +122,16 @@ namespace RAWSimO.Core.Configurations
             public double pod_radius;
             public double pod_horizontal_length;
             public double pod_vertical_length;
+            public bool use_access_points;
+            public int adr_sort_100;
+            public int adr_sort_10;
+            public int adr_sort_1;
+            public double preferred_cost;
+            public double neutral_cost;
+            public double unpreferred_cost;
+            public List<int> bots_per_period;
+            public List<int> pickers_per_period;
+            public List<int> refilling_per_period;
         }
 
         protected class OrdersData
@@ -78,6 +139,7 @@ namespace RAWSimO.Core.Configurations
             public double simulation_duration;
             public double const_assist_time;
             public double switch_pallet_time;
+            public int initial_batch_size;
             public double average_batch_size;
             public double batch_time_interval;
             public bool poisson;
@@ -92,6 +154,7 @@ namespace RAWSimO.Core.Configurations
             public double vehicle_max_deceleration;
             public double human_max_acceleration;
             public double human_max_deceleration;
+            public double vehicle_turn_time;
             //public bool reserve_same_loc;
             //public bool reserve_next_loc;
         }
@@ -145,6 +208,7 @@ namespace RAWSimO.Core.Configurations
             public double time_limit;
             public double const_assist_time;
             public double switch_pallet_time;
+            public int init_batch_size;
             public double avg_batch_size;
             public double batch_time_interval;
             public bool poisson;
@@ -160,6 +224,9 @@ namespace RAWSimO.Core.Configurations
             // visual occupation
             public double pod_horizontal_len;
             public double pod_vertical_len;
+            public List<int> bots_per_period;
+            public List<int> pickers_per_period;
+            public List<int> refilling_per_period;
 
             public string spawn_locations;
             private BotLocations _spawn_locations_type;
@@ -172,6 +239,7 @@ namespace RAWSimO.Core.Configurations
             public double human_max_acceleration;
             public double vehicle_max_deceleration;
             public double human_max_deceleration;
+            public double vehicle_turn_time;
             //public bool reserve_same_loc;
             //public bool reserve_next_loc;
 
@@ -203,6 +271,8 @@ namespace RAWSimO.Core.Configurations
                 human_max_acceleration = _agentData.human_max_acceleration;
                 vehicle_max_deceleration = _agentData.vehicle_max_deceleration;
                 human_max_deceleration = _agentData.human_max_deceleration;
+                vehicle_turn_time = _agentData.vehicle_turn_time > 0 ? _agentData.vehicle_turn_time : 2;
+
                 //reserve_same_loc = _agentData.reserve_same_loc;
                 //reserve_next_loc = _agentData.reserve_next_loc;
 
@@ -236,19 +306,51 @@ namespace RAWSimO.Core.Configurations
                 pod_radius = _mapData.pod_radius;
                 pod_horizontal_len = _mapData.pod_horizontal_length;
                 pod_vertical_len = _mapData.pod_vertical_length;
+                bots_per_period = _mapData.bots_per_period;
+                pickers_per_period = _mapData.pickers_per_period;
+                refilling_per_period = _mapData.refilling_per_period;
 
                 time_limit = _ordersData.simulation_duration;
                 const_assist_time = _ordersData.const_assist_time;
                 switch_pallet_time = _ordersData.switch_pallet_time;
+                init_batch_size = _ordersData.initial_batch_size;
                 avg_batch_size = _ordersData.average_batch_size;
                 batch_time_interval = _ordersData.batch_time_interval;
                 poisson = _ordersData.poisson;
-
+            }
+            public string GetOptimizationWorkingDirectory()
+            {
+                // use map.csv file with IOHelper to get the full path
+                string mapFilePath = _mainFolder + sep + _mainWarehouseDataFolder + sep + _name + sep + _mapsFolder + sep + map + sep + "map.csv";
+                string path = IOHelper.FindResourceFile(mapFilePath, System.IO.Directory.GetCurrentDirectory());
+                // get the parent directory from the full path
+                string working_directory = System.IO.Directory.GetParent(path).FullName;
+                return working_directory;
+            }
+            public string GetChosenMapDirectory()
+            {
+                string chosenMapDirectory = _mainWarehouseDataFolder + sep + _name + sep + _mapsFolder + sep + map;
+                return chosenMapDirectory;
             }
             public string GetMapFilePath()
             {
                 string mapFilePath = _mainFolder + sep + _mainWarehouseDataFolder + sep + _name + sep + _mapsFolder + sep + map + sep + "map.csv";
                 return mapFilePath;
+            }
+            public string GetAccessPointsFilePath()
+            {
+                string accessPointsFilePath = _mainFolder + sep + _mainWarehouseDataFolder + sep + _name + sep + _mapsFolder + sep + map + sep + "access_points.csv";
+                return accessPointsFilePath;
+            }
+            public string GetAddressesAccessPointsFilePath()
+            {
+                string addressesAccessPointsFilePath = _mainFolder + sep + _mainWarehouseDataFolder + sep + _name + sep + _mapsFolder + sep + map + sep + "address2ap.csv";
+                return addressesAccessPointsFilePath;
+            }
+            public string GetPodsQuantitiesFilePath()
+            {
+                string podsQuantitiesFilePath = _mainFolder + sep + _mainWarehouseDataFolder + sep + _name + sep + _mapsFolder + sep + map + sep + "initial_quantities.csv";
+                return podsQuantitiesFilePath;
             }
             public string GetAddressesFilePath()
             {
@@ -280,6 +382,19 @@ namespace RAWSimO.Core.Configurations
                 string orderFilePath = _mainFolder + sep + _mainWarehouseDataFolder + sep + _name + sep + _ordersFolder + sep + orders + sep + "orders.txt";
                 return orderFilePath;
             }
+
+            public string GetOrderFileName()
+            {
+                string orderFileName = orders;
+                return orderFileName;
+            }
+
+            public string GetRefillingFilePath()
+            {
+                string orderFilePath = _mainFolder + sep + _mainWarehouseDataFolder + sep + _name + sep + _ordersFolder + sep + orders + sep + "refills.txt";
+                return orderFilePath;
+            }
+
             public bool UseConstAssistTime()
             {
                 return const_assist_time > 0;
@@ -312,6 +427,30 @@ namespace RAWSimO.Core.Configurations
                 string spawnLocationsFilePath = _mainFolder + sep + _mainWarehouseDataFolder + sep + _name + sep + _mapsFolder + sep + map + sep + "spawn_locations.txt";
                 return spawnLocationsFilePath;
             }
+            public bool GetUsingAccessPoints()
+            {
+                // if it is empyt it will be false
+                return _mapData.use_access_points;
+            }
+            public Tuple<int, int, int> GetAddressSortCoefficients()
+            {
+                int s1 = _mapData.adr_sort_1;
+                int s10 = _mapData.adr_sort_10;
+                int s100 = _mapData.adr_sort_100;
+                if (s1 == 0 && s10 == 0 && s100 == 0)
+                {
+                    s1 = 1; s10 = 1000; s100 = 1000000;
+                }
+                return new Tuple<int,int,int>(s100, s10, s1);
+            }
+            public Tuple<double, double, double> GetMapCostCoefficients()
+            {
+                double p_cost = _mapData.preferred_cost;
+                double n_cost = _mapData.neutral_cost;
+                double u_cost = _mapData.unpreferred_cost;
+
+                return new Tuple<double, double, double>(p_cost, n_cost, u_cost);
+            }
         }
 
 
@@ -320,15 +459,31 @@ namespace RAWSimO.Core.Configurations
         /// <summary>
         /// The number of MovableStations to generate.
         /// </summary>
-        public int MovableStationCount = 6; 
+        public int MovableStationCount = 4; 
         /// <summary>
         /// The number of Mates to generate
         /// </summary>
-        public int MateBotCount = 4;
+        public int MateBotCount = 3;
+        /// <summary>
+        /// The number of RefillingStation to generate.
+        /// </summary>
+        public int RefillingStationCount = 0;
         /// <summary>
         /// The csv file containing map layout and direction costs 
         /// </summary>
         public string MapFile = "";
+        /// <summary>
+        /// The csv file containing access points 
+        /// </summary>
+        public string AccessPointsFile = "";
+        /// <summary>
+        /// The csv file containing access points in addresses locations
+        /// </summary>
+        public string AddressAccessPointsFile = "";
+        /// <summary>
+        /// The csv file containing access points in addresses locations
+        /// </summary>
+        public string PodsQuantitiesFile = "";
         /// <summary>
         /// The csv file containing Item addresses 
         /// </summary>
@@ -350,6 +505,18 @@ namespace RAWSimO.Core.Configurations
         /// Horizontal distance between waypoints
         /// </summary>
         public double VerticalWaypointDistance = 1.3;
+        /// <summary>
+        /// Contains number of pickers per time interval
+        /// </summary>
+        public List<int> BotsPerPeriod = null;
+        /// <summary>
+        /// Contains number of pickers per time interval
+        /// </summary>
+        public List<int> PickersPerPeriod = null;
+        /// <summary>
+        /// Contains number of refilling stations per time interval
+        /// </summary>
+        public List<int> RefillingPerPeriod = null;
         /// <summary>
         /// The radius of a bot in m.
         /// </summary>
@@ -389,7 +556,7 @@ namespace RAWSimO.Core.Configurations
         /// <summary>
         /// The time it takes for the MateBot to do a complete (360°) turn in s.
         /// </summary>
-        public double MateTurnSpeed = 2;
+        public double MateTurnSpeed = 0.01;
         /// <summary>
         /// The penalty time for bots that collide.
         /// </summary>
@@ -425,7 +592,7 @@ namespace RAWSimO.Core.Configurations
         /// <summary>
         /// The name of the layout.
         /// </summary>
-        public string NameLayout = "tiny";
+        public string NameLayout = "";
         /// <summary>
         /// The number of tiers to generate.
         /// </summary>
@@ -435,6 +602,11 @@ namespace RAWSimO.Core.Configurations
         /// </summary>
         public double TierHeight = 4;
             
+
+        public int GetNumberOfBots()
+        {
+            return MovableStationCount + MateBotCount + RefillingStationCount;
+        }
 
         #endregion
 

@@ -703,6 +703,11 @@ namespace RAWSimO.Core.Management
                             Instance.SettingConfig.OrderCountStopCondition = Instance.OrderList.Orders.Count;
                         else
                             Instance.SettingConfig.ManualOrderCountStopCondition = true;
+
+                        if (Instance.SettingConfig.RefillingEnabled)
+                        {
+                            InstanceIO.ReadRefillsFromFile(Instance.SettingConfig.InventoryConfiguration.FixedInventoryConfiguration.RefillingFile, Instance);
+                        }
                         #endregion
                     }
                     break;
@@ -1162,7 +1167,7 @@ namespace RAWSimO.Core.Management
         {
             // Init
             IRandomizer rand = Instance.Randomizer;
-            Order order = new Order(Instance.GetDropWaypointFromAddress(""));
+            Order order = new Order(Instance.GetDropWaypointFromAddress());
             // Set the time as if the order was placed right now
             order.TimeStamp = Instance.Controller == null ? 0.0 : Instance.Controller.CurrentTime;
             // Set a random due time as an offset off the time at which the order is placed, hence: now + offset
@@ -1920,9 +1925,15 @@ namespace RAWSimO.Core.Management
                                 if (_lastFillTime == 0.0 ||
                                     currentTime - _lastFillTime > Instance.SettingConfig.InventoryConfiguration.BatchingTimeInterval)
                                 {
-                                    int noOrders = (int) Math.Floor(Instance.SettingConfig.InventoryConfiguration.AverageNumberOfOrders);
-                                    if (Instance.SettingConfig.InventoryConfiguration.UsePoissonBatching)
-                                        noOrders = GetPoissonNumberOfOrders();
+                                    int noOrders = 0;
+                                    if (_lastFillTime == 0.0 && Instance.SettingConfig.InventoryConfiguration.InitialBatchSize > 0)
+                                        noOrders = Instance.SettingConfig.InventoryConfiguration.InitialBatchSize;
+                                    else
+                                    {
+                                        noOrders = (int)Math.Floor(Instance.SettingConfig.InventoryConfiguration.AverageNumberOfOrders);
+                                        if (Instance.SettingConfig.InventoryConfiguration.UsePoissonBatching)
+                                            noOrders = GetPoissonNumberOfOrders();
+                                    }
                                     if (newOrders.Count < noOrders) noOrders = newOrders.Count;
                                     newOrders = newOrders.Take(noOrders).ToList();
                                     _lastFillTime = currentTime;

@@ -86,6 +86,15 @@ namespace RAWSimO.Core
         public OrderList OrderList;
 
         public Dictionary<string, Dictionary<int, int>> OrderLocationInfo;
+
+        /// <summary>
+        /// List of refills used for replenishment of items.
+        /// <remarks>
+        /// Dictionary key is the completed order count before which the replenishment is triggered.
+        /// In list are all necessary addresses.
+        /// </remarks>
+        /// </summary>
+        public Dictionary<int, List<string>> RefillsList = new Dictionary<int, List<string>>();
         /// <summary>
         /// The compound declaring all physical attributes of the instance.
         /// </summary>
@@ -123,6 +132,10 @@ namespace RAWSimO.Core
         /// </summary>
         public List<OutputPalletStand> OutputPalletStands = new List<OutputPalletStand>();
         /// <summary>
+        /// All label stands of this instance with their IDs
+        /// </summary>
+        public Dictionary<string, Waypoint> LabelStands = new Dictionary<string, Waypoint>();
+        /// <summary>
         /// All output-stations of this instance.
         /// </summary>
         public List<OutputStation> OutputStations = new List<OutputStation>();
@@ -154,6 +167,26 @@ namespace RAWSimO.Core
         /// Dictionary mapping address of the picking location/item to the sort order
         /// </summary>
         public Dictionary<string, int> addressToSortOrder = new Dictionary<string, int>();
+        /// <summary>
+        /// Data from file containing access points
+        /// </summary>
+        public List<List<string>> AccessPointsArray = new List<List<string>>();
+        /// <summary>
+        /// Data from file containing mapping from addresses to access points
+        /// </summary>
+        public List<List<string>> AddressesAccessPointsArray = new List<List<string>>();
+        /// <summary>
+        /// Data from file containing quantites of each location
+        /// </summary>
+        public List<List<int>> PodsQuantitiesArray = new List<List<int>>();
+        /// <summary>
+        /// Mapping each item address to an access point waypoint ID
+        /// </summary>
+        public Dictionary<string, int> addressToAccessPoint = new Dictionary<string, int>(); 
+        /// <summary>
+        /// Mapping each item address to an access point
+        /// </summary>
+        public Dictionary<string, Tuple<int, int>> accessPointToLocation = new Dictionary<string, Tuple<int, int>>();
         /// <summary>
         /// Int array containing mateBot zones where they operate
         /// </summary>
@@ -214,7 +247,7 @@ namespace RAWSimO.Core
         /// <returns></returns>
         public Waypoint GetWaypointFromAddress(string address)
         {
-            var pod = Pods.FirstOrDefault(a => a.Address.Equals(address));
+            var pod = Pods.FirstOrDefault(a => a.Address.Equals(Order.RemoveSufixFromAddress(address)));
             if (pod == null) throw new Exception("Address " + address + " doesn't exists!");
             return pod.Waypoint;
         }
@@ -237,16 +270,48 @@ namespace RAWSimO.Core
         }
 
         /// <summary>
-        /// Finds adequate drop waypoint from address
+        /// Finds adequate drop waypoint from output_id
         /// </summary>
-        /// <param name="address"></param>
+        /// <param name="output_stand_id"></param>
         /// <returns></returns>
-        public Waypoint GetDropWaypointFromAddress(string address)
+        public Waypoint GetDropWaypointFromAddress(int output_stand_id = -1)
         {
+            for(int i = 0; i < OutputPalletStands.Count; i++)
+            {
+                if (OutputPalletStands[i].ID == output_stand_id)
+                {
+                    lastDropSite = i;
+                    return OutputPalletStands[i].Waypoint;
+                }
+            }
             if (OutputPalletStands.Count > 0 )
                 return OutputPalletStands[lastDropSite++ % OutputPalletStands.Count].Waypoint;
             return null;
         }
+
+        /// <summary>
+        /// Refills some quantity of items at a specific address
+        /// </summary>
+        /// <param name="address">Where to refill capacity.</param>
+        public void RefillCapacityInUseAtAddress(string address)
+        {
+            var pod = GetWaypointFromAddress(address).Pod;
+            pod.CapacityInUse += pod.Capacity;
+            pod.StockCapacity -= pod.Capacity;
+
+            Controller.OrderManager.OnRefillingEnded(address, (int)pod.Capacity);
+        }
+
+        /// <summary>
+        /// Refills some quantity of items at a specific address
+        /// </summary>
+        /// <param name="address">Where to refill stock capacity.</param>
+        public void RefillStockCapacityAtAddress(string address)
+        {
+            var pod = GetWaypointFromAddress(address).Pod;
+            pod.StockCapacity += pod.Capacity;
+        }
+
         /// <summary>
         /// Finds element of the <see cref="List{T}"/> which is closest to destination
         /// </summary>
@@ -274,11 +339,7 @@ namespace RAWSimO.Core
         /// <summary>
         /// Deletes item duplicates and adds up the time 
         /// </summary>
-        /// <param name="allAddresses"></param>
-        /// <param name="allTimes"></param>
-        /// <param name="addresses"></param>
-        /// <param name="times"></param>
-        internal void MergeTheSameItems(List<string> allAddresses, List<double> allTimes, List<string> addresses, List<double> times, List<int> allPalletIDs, List<int> palletIDs)
+        internal void MergeTheSameItems(List<string> allAddresses, List<double> allTimes, List<int> allQuantities, List<int> allPalletIDs, List<string> addresses, List<double> times, List<int> quantities, List<int> palletIDs)
         {
             for (int i = 0; i < allAddresses.Count; i++)
             {
@@ -287,11 +348,13 @@ namespace RAWSimO.Core
                 if (index != -1)
                 {
                     times[index] += allTimes[i];
+                    quantities[index] += allQuantities[i];
                 }
                 else
                 {
                     addresses.Add(allAddresses[i]);
                     times.Add(allTimes[i]);
+                    quantities.Add(allQuantities[i]);
                     palletIDs.Add(allPalletIDs[i]);
                 }
             }

@@ -1,0 +1,35 @@
+{
+  "zoneConfigurations":
+  [
+    { "numberOfMates": 2,
+      "zones": [
+        {"zone": 1,"mates": [ 1 ]},
+        {"zone": 2,"mates": [ 1, 2 ]},
+        {"zone": 3,"mates": [ 2 ]}
+      ] },
+    { "numberOfMates": 3,
+      "zones": [
+        {"zone": 1,"mates": [ 1 ]},
+        {"zone": 2,"mates": [ 2 ]},
+        {"zone": 3,"mates": [ 3]}
+      ] },
+    { "numberOfMates": 4,
+      "zones": [
+        {"zone": 1,"mates": [ 1 ]},
+        {"zone": 2,"mates": [ 2, 4 ]},
+        {"zone": 3,"mates": [ 3 ]}
+      ] },
+    { "numberOfMates": 5,
+      "zones": [
+        {"zone": 1,"mates": [ 1, 2 ]},
+        {"zone": 2,"mates": [ 3, 4 ]},
+        {"zone": 3,"mates": [ 5 ]}
+      ] },
+    { "numberOfMates": 6,
+      "zones": [
+        {"zone": 1,"mates": [ 1, 2 ]},
+        {"zone": 2,"mates": [ 3, 4 ]},
+        {"zone": 3,"mates": [ 5, 6 ]}
+      ] }
+  ]
+}

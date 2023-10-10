@@ -96,7 +96,7 @@ namespace RAWSimO.Core.Control
                     FindBestAvailableLocation(mate, out location, out predictedArrivalTime, out newBot);
 
                 //Set time of this search
-                TimeOfLastSeach[mate] = currentTime;
+                TimeOfLastSearch[mate] = currentTime;
 
                 //if FindBestAvailableLocation failed, continue
                 if (location == null || newBot == null)

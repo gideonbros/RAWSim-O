@@ -72,6 +72,21 @@ namespace RAWSimO.Core.Control
             _lastTaskEnqueued[station] = task;
         }
         /// <summary>
+        /// Enqueues an RefillingTask task.
+        /// </summary>
+        /// <param name="movableStation">The bot that shall execute the task.</param>
+        /// <param name="addresses">Addresses of the refilling locations</param>
+        protected void EnqueueRefillingTask(MovableStation station, List<string> addresses, bool stockRefillNeeded)
+        {
+            RefillingTask task = new RefillingTask(Instance, station, addresses, stockRefillNeeded);
+            task.Prepare();
+            if (_taskQueues[station] != null)
+                _taskQueues[station].Cancel();
+            _taskQueues[station] = task;
+            _lastTaskEnqueued[station] = task;
+        }
+
+        /// <summary>
         /// Enqueues an extraction task.
         /// </summary>
         /// <param name="bot">The bot that shall execute the task.</param>
@@ -138,7 +153,7 @@ namespace RAWSimO.Core.Control
         /// </summary>
         /// <param name="bot">The bot that shall idle.</param>
         /// <param name="restLocation">The location to use for idling.</param>
-        protected void EnqueueRest(Bot bot, Waypoint restLocation)
+        public void EnqueueRest(Bot bot, Waypoint restLocation)
         {
             RestTask task = new RestTask(Instance, bot, restLocation);
             task.Prepare();

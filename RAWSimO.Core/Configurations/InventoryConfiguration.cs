@@ -30,13 +30,17 @@ namespace RAWSimO.Core.Configurations
         /// </summary>
         public bool UseOrderBatching = false;
         /// <summary>
+        /// Starting number of available orders which is then increased when further batches are added.
+        /// </summary>
+        public int InitialBatchSize = 50;
+        /// <summary>
         /// Specifies an average number of orders in a fixed interval of time in Poisson distribuition.
         /// </summary>
-        public double AverageNumberOfOrders = 1.0;
+        public double AverageNumberOfOrders = 5.0;
         /// <summary>
         /// Specifies a fixed interval of time in which orders occur in Poisson distribuition.
         /// </summary>
-        public double BatchingTimeInterval = 100.0;
+        public double BatchingTimeInterval = 1200.0;
 
         /// <summary>
         /// Use poisson distribution for order batching.
@@ -502,6 +506,8 @@ namespace RAWSimO.Core.Configurations
         public string OrderFile = "";
 
         public string OrderLocationFile = "";
+
+        public string RefillingFile = "";
 
         public FixedInventoryConfiguration() { }
     }

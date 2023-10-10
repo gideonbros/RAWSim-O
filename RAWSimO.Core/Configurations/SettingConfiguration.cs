@@ -70,7 +70,38 @@ namespace RAWSimO.Core.Configurations
         /// <summary>
         /// New sort using the excel file
         /// </summary>
-        public bool usingMapSortItems = true;
+        public bool usingMapSortItems = false;
+
+        /// <summary>
+        /// Code modifications for optimization client
+        /// </summary>
+        public bool usingOptimizationClient = false;
+
+        /// <summary>
+        /// Call optimization module after every picked item
+        /// </summary>
+        public bool reoptimizeEveryPickedItem = true;
+
+        /// <summary>
+        /// Minimum time between reoptimization calls
+        /// </summary>
+        public double reoptimizationTimeInterval = 0;
+
+        /// <summary>
+        /// Use order shuffling
+        /// </summary>
+        public bool orderShuffling = false;
+
+        /// <summary>
+        /// Use bot item shuffling
+        /// </summary>
+        public bool botItemShuffling = false;
+
+        /// <summary>
+        /// Use picker reassignment option
+        /// </summary>
+        public bool pickerReassignment = false;
+
 
         /// <summary>
         /// Indicates whether Reserve same assist location will be enabled
@@ -125,9 +156,34 @@ namespace RAWSimO.Core.Configurations
         public int Seed = 0;
 
         /// <summary>
-        /// Path to statisics summary .xlsx file
+        /// Path to statistics summary .xlsx file
         /// </summary>
         public string StatisticsSummaryFile = "StatisticsSummary.xlsx";
+
+        /// <summary>
+        /// Path to partial statisics summary .xlsx file
+        /// </summary>
+        public string PartialStatisticsSummaryFile = "StatisticsSummaryPartial.xlsx";
+
+        /// <summary>
+        /// Path to statistics summary directory.
+        /// </summary>
+        public string StatisticsSummaryDirectory;
+
+        /// <summary>
+        /// Statistics summary output frequency in minutes
+        /// </summary>
+        public double StatisticsSummaryOutputFrequency = -1.0;
+
+        /// <summary>
+        /// Velocity cutoff for statistics congestion visualization.
+        /// </summary>
+        public double StatVelocityCutoff = 0.5;
+
+        /// <summary>
+        /// Indicates if pickers are moving from access points to real picking location and back to access points
+        /// </summary>
+        public bool MovePickersAroundAPs = false;
 
         /// <summary>
         /// Indicates usage of constant assist duration regardless of the item.
@@ -144,6 +200,41 @@ namespace RAWSimO.Core.Configurations
         /// Time it takes to switch pallets
         /// </summary>
         public double SwitchPalletDuration = 20;
+
+        /// <summary>
+        /// IPS duration time
+        /// </summary>
+        public double IPSPalletDuration = 50.0;//30.0;//54.37;//54.37;
+
+        /// <summary>
+        /// IPS duration time
+        /// </summary>
+        public double OSPalletDuration = 50.0;//30.0;//54.37;//54.37;
+
+        /// <summary>
+        /// Exclude intake and outbound pallet stands
+        /// </summary>
+        public bool ExcludePalletStands = false;
+
+        /// <summary>
+        /// Printer duration time.
+        /// </summary>
+        public double PrinterDuration = 60.0;
+
+        /// <summary>
+        /// Maximum number of locations forklift can refill in a single go without getting new pallet.
+        /// </summary>
+        public int MaxNumberOfItemsRefilledAtOnce = 2;
+
+        /// <summary>
+        /// Time needed to refill the item.
+        /// </summary>
+        public double TimeToRefill = 90;
+
+        /// <summary>
+        /// True if refilling is enabled
+        /// </summary>
+        public bool RefillingEnabled = false;
 
         /// <summary>
         /// Breaking condition
@@ -173,10 +264,7 @@ namespace RAWSimO.Core.Configurations
         /// <summary>
         /// Path to a file where MateScheduler will log it's data
         /// </summary>
-        // C:\Users\Rene Marusevec\Documents\raw_fleet_simulator\logger.txt
         public string MateSchedulerLoggerPath = @"";
-        public string LocationManagerLoggerPath = @""; 
-        public string TempLoggerPath = @""; 
 
         /// <summary>
         /// The log level used to filter output messages.
@@ -257,7 +345,11 @@ namespace RAWSimO.Core.Configurations
         /// </summary>
         public bool StopCondition { get; set; } = false;
 
-
+        /// <summary>
+        /// Indicates whether same items should be merged inside same order. 
+        /// Otherwise, each item address will be given sufix ID.
+        /// </summary>
+        public bool MergeSameItems = true;
         /// <summary>
         /// Indicates whether fix orders will be sorted
         /// </summary
@@ -431,6 +523,13 @@ namespace RAWSimO.Core.Configurations
 
         #endregion
 
+        #region Constructors
+        public SettingConfiguration()
+        {
+            StatisticsSummaryDirectory = Path.GetDirectoryName(System.Reflection.Assembly.GetEntryAssembly().Location) + "\\..\\..\\..\\..\\statistics";
+        }
+        #endregion
+
         #region Self check
         public bool CheckValidityOfPaths(out string message )
         {
@@ -458,8 +557,29 @@ namespace RAWSimO.Core.Configurations
                 }
             }
 
+            //check partial statistics summary file path
+            if (!string.IsNullOrEmpty(PartialStatisticsSummaryFile))
+            {
+                var StatisticsSummaryDirectory = Path.GetDirectoryName(PartialStatisticsSummaryFile);
+                if (!string.IsNullOrEmpty(StatisticsSummaryDirectory) && !Directory.Exists(StatisticsSummaryDirectory))
+                {
+                    errorMessage.Append("Directory " + StatisticsSummaryDirectory + " does not exist!\n");
+                    success = false;
+                }
+                if (string.IsNullOrEmpty(StatisticsSummaryDirectory))
+                {
+                    StatisticsSummaryDirectory = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "..", "..", "..", "..", "statistics");
+                    PartialStatisticsSummaryFile = Path.Combine(StatisticsSummaryDirectory, PartialStatisticsSummaryFile);
+                }
+                if (Path.GetExtension(PartialStatisticsSummaryFile) != ".xlsx")
+                {
+                    errorMessage.Append(PartialStatisticsSummaryFile + " is not an .xlsx file!\n");
+                    success = false;
+                }
+            }
+
             //check Mate scheduler logger
-            if(!string.IsNullOrEmpty(MateSchedulerLoggerPath))
+            if (!string.IsNullOrEmpty(MateSchedulerLoggerPath))
             {
                 var MateSchedulerLoggerDirectory = Path.GetDirectoryName(MateSchedulerLoggerPath);
                 if (!string.IsNullOrEmpty(MateSchedulerLoggerDirectory) && !Directory.Exists(MateSchedulerLoggerDirectory))

@@ -179,7 +179,9 @@ namespace RAWSimO.Core.Control
             Locations = new List<Waypoint>();
             PodLocations = new List<Waypoint>();
             PodItems = new List<SimpleItemDescription>();
-            Times = new List<double>();
+            Times = new Dictionary<string, double>();
+            NeededQuantities = new Dictionary<string, int>();
+            TriesOfItemCollecting = new Dictionary<string, int>();
             LocationItemDictionary = new Dictionary<Waypoint, List<ItemDescription>>();
             //foreach (var position in order.Positions)
             // Use the ordered item list to suggest the preferred item order as determined by the optmization
@@ -192,8 +194,10 @@ namespace RAWSimO.Core.Control
                 // bot location and the pod location is tracked
                 PodLocations.Add(point);
                 PodItems.Add(item as SimpleItemDescription);
-                Instance.Controller.MateScheduler.itemTable[bot.ID].AddAddress((item as SimpleItemDescription).location);
-                Times.Add(order.Times[item]);
+                Instance.Controller.MateScheduler.itemTable[bot.ID].AddAddress((item as SimpleItemDescription).GetAddress());
+                Times.Add((item as SimpleItemDescription).GetAddress(), order.Times[item]);
+                NeededQuantities.Add((item as SimpleItemDescription).GetAddress(), order.Quantities[item]);
+                TriesOfItemCollecting.Add((item as SimpleItemDescription).GetAddress(), 0);
                 if (!LocationItemDictionary.ContainsKey(point))
                     LocationItemDictionary.Add(point, new List<ItemDescription>());
                 LocationItemDictionary[point].Add(item);
@@ -204,9 +208,9 @@ namespace RAWSimO.Core.Control
             // updated the ID of the order
             order.movableStationID = bot.GetInfoID();
             order.movableStationHue = bot.GetInfoHue();
-            DropWaypoint = null; //currently DropWaypoint is ignored (from OrderFile)
+            DropWaypoint = order.OutputID >= 0 ? order.DropWaypoint : null;
         }
-        /// <summary>n
+        /// <summary>
         /// List of locations that the robot will visit
         /// </summary>
         public List<Waypoint> Locations {get; private set;}
@@ -224,7 +228,15 @@ namespace RAWSimO.Core.Control
         /// <summary>
         /// Represents a list of times needed for each item
         /// </summary>
-        public List<double> Times { get; set; }
+        public Dictionary<string, double> Times { get; set; }
+        /// <summary>
+        /// Represents a list of remaining quantities needed for each item
+        /// </summary>
+        public Dictionary<string, int> NeededQuantities { get; set; }
+        /// <summary>
+        /// Dictionary that counts tries of collecting item on specific location.
+        /// </summary>
+        public Dictionary<string, int> TriesOfItemCollecting { get; private set; }
         /// <summary>
         /// Item drop waypoint
         /// </summary>
@@ -272,28 +284,39 @@ namespace RAWSimO.Core.Control
                     if(!_found)
                         throw new Exception("Locatons should have pods!" + Locations[i].ToString() + " does not have pod");
                 }
-                
-                // find the neighbouring location waypoint which is clear
-                foreach (Waypoint newWaypoint in Locations[i].Paths)
+
+                // read from dictionary
+                string address = Locations[i].Address;
+                if (Instance.addressToAccessPoint.ContainsKey(address))
                 {
-                    Waypoint location = null;
-                    // if it doesn't have a pod
-                    if (!newWaypoint.HasPod)
+                    int wpID = Instance.addressToAccessPoint[address];
+                    Locations[i] = Instance.GetWaypointByID(wpID);
+                    found = true;
+                }
+                else
+                {
+                    // find all pod-free neighbours
+                    List<Waypoint> clearNeighbours = new List<Waypoint>();
+                    foreach (Waypoint newWaypoint in Locations[i].Paths)
                     {
-                        // find the closest (BFS) access point (queue position)
-                        // this also covers the case when
-                        location = path_BFS(newWaypoint);
-                        // if found, this is the queue point
-                        if (location != null)
-                        {
-                            Locations[i] = location;
-                            found = true;
-                            break;
-                        }
+                        if (!newWaypoint.HasPod && !newWaypoint.UnavailableStorage)
+                            clearNeighbours.Add(newWaypoint);
+                    }
+                    Waypoint location = null;
+                    // find the closest (BFS) access point (queue position)
+                    // this also covers the case when
+                    location = path_BFS(clearNeighbours);
+                    // if found, this is the queue point
+                    if (location != null)
+                    {
+                        Locations[i] = location;
+                        Instance.addressToAccessPoint.Add(address, location.ID);
+                        found = true;
                     }
                 }
+
                 //if this part is reached then no available position was found, throw error
-                if(!found)
+                if (!found)
                     throw new Exception("there was no available position next to " + Locations[i].ToString());
             }
         }
@@ -303,17 +326,18 @@ namespace RAWSimO.Core.Control
         /// </summary>
         /// <param name="startWp">Starting waypoint, usally with pod</param>
         /// <returns></returns>
-        public Waypoint path_BFS(Waypoint startWp)
+        public Waypoint path_BFS(List<Waypoint> startWps)
         {
             Waypoint location = null;
             Queue<Waypoint> wps = new Queue<Waypoint>();
             List<Waypoint> visited = new List<Waypoint>();
-            wps.Enqueue(startWp);
+            foreach (Waypoint wp in startWps)
+                wps.Enqueue(wp);
             while (wps.Count > 0)
             {
                 Waypoint currWp = wps.Dequeue();
                 visited.Add(currWp);
-                if (!currWp.HasPod)
+                if (!currWp.HasPod && !currWp.UnavailableStorage)
                 {
                     if (currWp.isAccessPoint)
                     {
@@ -322,20 +346,183 @@ namespace RAWSimO.Core.Control
                     }
                     else
                     {
-                        foreach(var wp in currWp.Paths)
-                            if (!visited.Contains(wp))
+                        foreach (var wp in currWp.Paths)
+                        {
+                            if (!visited.Contains(wp) && !wps.Contains(wp))
+                            {
                                 wps.Enqueue(wp);
+                            }
+                        }
                     }
                 }
             }
             return location;
         }
 
+        /// <summary>
+        /// Computes time needed for collecting item.
+        /// </summary>
+        /// <param name="address">Address of the item.</param>
+        /// <returns></returns>
+        public double CopmupteTimeForItem(string address)
+        {
+            var pod = Instance.GetWaypointFromAddress(address).Pod;
+            var item = Order.OrderedItemList.Where(it => (it as Items.SimpleItemDescription).GetAddress() == address).First() as Items.SimpleItemDescription;
+
+            int quantityNeeded = NeededQuantities[address];
+            // If quantity is 0, the default time will be returned
+            if (quantityNeeded == 0)
+            {
+                return Times[address];
+            }
+            double timePerQuantity = Times[address] / Order.Quantities[item];
+
+            double duration = 0;
+            if (pod.CapacityInUse < quantityNeeded)
+            {
+                duration = timePerQuantity * pod.CapacityInUse;
+            }
+            else
+            {
+                duration = timePerQuantity * quantityNeeded;
+            }
+            return duration;
+        }
+
     }
-    /// <summary>
-    /// This class represents a park pod task.
-    /// </summary>
-    public class ParkPodTask : BotTask
+
+    public class RefillingTask : BotTask
+    {
+        /// <summary>
+        /// Creates a new task.
+        /// </summary>
+        /// <param name="instance">The instance this task belongs to.</param>
+        /// <param name="bot">The bot that shall execute the task.</param>
+        /// <param name="addresses">Addresses of the refilling locations</param>
+        /// <param name="stockRefillNeeded">If stock will be refilled, else capacityInUse will be refilled.</param>
+        public RefillingTask(Instance instance, Bot bot, List<string> addresses, bool stockRefillNeeded)
+            : base(instance, bot)
+        {
+            Locations = new List<Waypoint>();
+            PodLocations = new List<Waypoint>();
+            StockRefillNeeded = stockRefillNeeded;
+            // Use the ordered item list to suggest the preferred item order as determined by the optmization
+            foreach (var address in addresses)
+            {
+                Waypoint position = instance.GetWaypointFromAddress(address);
+                // locations where robot will come
+                Locations.Add(position);
+                // true locations of the pod so that the mapping of the
+                // bot location and the pod location is tracked
+                PodLocations.Add(position);
+            }
+        }
+        /// <summary>
+        /// List of locations that the robot will visit
+        /// </summary>
+        public List<Waypoint> Locations { get; private set; }
+        public List<Waypoint> PodLocations { get; private set; }
+        /// <summary>
+        /// The stock - all of the pallets above main pallet.
+        /// </summary>
+        public bool StockRefillNeeded { get; set; }
+
+        /// <summary>
+        /// The type of the task.
+        /// </summary>
+        public override BotTaskType Type => BotTaskType.RefillingTask;
+        public override void Cancel()
+        {
+            //Not implemented for now
+        }
+        /// <summary>
+        /// Finish the task and signal OrderManager
+        /// </summary>
+        public override void Finish()
+        {
+        }
+        /// <summary>
+        /// Prepares the task by adjusting waypoints so that they are not blocked by pods
+        /// </summary>
+        public override void Prepare()
+        {
+            if (Locations == null) throw new TaskCanceledException("DummyTask Location was unitialized but Prepare() was called");
+            // go through all task locations
+            for (int i = 0; i < Locations.Count; ++i)
+            {
+                bool found = false;
+                // check if this is the location with the pod
+                if (!Locations[i].HasPod)
+                {
+                    bool _found = false;
+                    foreach (var wp in Locations[i].Paths)
+                    {
+                        if (wp.HasPod)
+                        {
+                            _found = true;
+                            Locations[i] = wp;
+                            break;
+                        }
+                    }
+                    if (!_found)
+                        throw new Exception("Locatons should have pods!" + Locations[i].ToString() + " does not have pod");
+                }
+
+                // read from dictionary
+                string address = Locations[i].Address;
+                int wpID = Instance.addressToAccessPoint[address];
+                Locations[i] = Instance.GetWaypointByID(wpID);
+                found = true;
+
+                //if this part is reached then no available position was found, throw error
+                if (!found)
+                    throw new Exception("there was no available position next to " + Locations[i].ToString());
+            }
+        }
+
+        /// <summary>
+        /// Finding the closes access point via BFS for a single waypoint.
+        /// </summary>
+        /// <param name="startWp">Starting waypoint, usally with pod</param>
+        /// <returns></returns>
+        public Waypoint path_BFS(List<Waypoint> startWps)
+        {
+            Waypoint location = null;
+            Queue<Waypoint> wps = new Queue<Waypoint>();
+            List<Waypoint> visited = new List<Waypoint>();
+            foreach (Waypoint wp in startWps)
+                wps.Enqueue(wp);
+            while (wps.Count > 0)
+            {
+                Waypoint currWp = wps.Dequeue();
+                visited.Add(currWp);
+                if (!currWp.HasPod && !currWp.UnavailableStorage)
+                {
+                    if (currWp.isAccessPoint)
+                    {
+                        location = currWp;
+                        break;
+                    }
+                    else
+                    {
+                        foreach (var wp in currWp.Paths)
+                        {
+                            if (!visited.Contains(wp) && !wps.Contains(wp))
+                            {
+                                wps.Enqueue(wp);
+                            }
+                        }
+                    }
+                }
+            }
+            return location;
+        }
+    }
+
+        /// <summary>
+        /// This class represents a park pod task.
+        /// </summary>
+        public class ParkPodTask : BotTask
     {
         /// <summary>
         /// Creates a new task.

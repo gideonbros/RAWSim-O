@@ -24,13 +24,6 @@
                     <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="Transparent" />
                     <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="Black" />
                 </Style.Resources>
-                <!-- Set opacity depending on MouseOver - TODO removed for now -->
-                <!--<Setter Property="Opacity" Value="0.25"/>
-                <Style.Triggers>
-                    <Trigger Property="IsMouseOver" Value="True">
-                        <Setter Property="Opacity" Value="1" />
-                    </Trigger>
-                </Style.Triggers>-->
             </Style>
             <Style TargetType="WrapPanel" x:Key="StyleGeneratorElement">
                 <Setter Property="HorizontalAlignment" Value="Left"/>
@@ -112,7 +105,7 @@
             <!-- Gridsplitter with Viewport underneath -->
             <RowDefinition Height="Auto" />
             <!-- Console with Viewport underneath -->
-            <RowDefinition Height="1*" />
+            <RowDefinition Height="0" />
         </Grid.RowDefinitions>
         <!-- 3D-Viewport -->
         <HelixToolkit:HelixViewport3D Grid.RowSpan="4" Grid.ColumnSpan="5" Name="Viewport3D" Visibility="Hidden" ClipToBounds="False">
@@ -122,7 +115,7 @@
             <!-- This is the control that handles zooming and panning. -->
             <ZoomControl:ZoomAndPanControl Name="zoomAndPanControl" Background="LightGray" MouseDown="ZoomControl_MouseDown" MouseUp="ZoomControl_MouseUp" MouseMove="ZoomControl_MouseMove" MouseWheel="ZoomControl_MouseWheel" MouseDoubleClick="ZoomControl_MouseDoubleClick">
                 <!-- This is the content that is displayed. -->
-                <Grid Name="theGrid" Width="800" Height="550">
+                <Grid Name="theGrid" Width="Auto" Height="Auto">
                     <!-- This Canvas is the main part of the content that is displayed. -->
                     <Canvas Name="content" Background="White">
                     </Canvas>
@@ -141,7 +134,7 @@
                 <!-- Viewport underneath -->
                 <ColumnDefinition Width="Auto" />
                 <!-- Basic info with Viewport underneath -->
-                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
@@ -220,19 +213,19 @@
                         <GroupBox Header="Parameters">
                             <StackPanel Orientation="Horizontal">
                                 <GroupBox Header="Instance layout">
-                                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" HorizontalAlignment="Left" VerticalAlignment="Top" MaxHeight="600">
+                                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" HorizontalAlignment="Left" VerticalAlignment="Top" MaxHeight="700" MaxWidth="500">
                                         <StackPanel Style="{StaticResource StyleConfigAutoGenStack}" Name="WrapPanelInstanceLayout">
                                         </StackPanel>
                                     </ScrollViewer>
                                 </GroupBox>
                                 <GroupBox Header="Setting configuration">
-                                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" HorizontalAlignment="Left" VerticalAlignment="Top" MaxHeight="600">
+                                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" HorizontalAlignment="Left" VerticalAlignment="Top" MaxHeight="700" MaxWidth="300">
                                         <StackPanel Style="{StaticResource StyleConfigAutoGenStack}" Name="WrapPanelSettingConfiguration">
                                         </StackPanel>
                                     </ScrollViewer>
                                 </GroupBox>
                                 <GroupBox Header="Controller configuration">
-                                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" HorizontalAlignment="Left" VerticalAlignment="Top" MaxHeight="600">
+                                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" HorizontalAlignment="Left" VerticalAlignment="Top" MaxHeight="700" MaxWidth="500">
                                         <StackPanel Style="{StaticResource StyleConfigAutoGenStack}" Name="WrapPanelControlConfiguration">
                                         </StackPanel>
                                     </ScrollViewer>
@@ -384,11 +377,11 @@
                     </StackPanel>
                 </TabItem>
                 <TabItem Name="TabStatistics" Header="Misc" ToolTip="Miscellaneous functionality">
-                    <StackPanel Orientation="Vertical">
+                    <StackPanel Name="StatisticsPanel" Orientation="Vertical" Width="800">
                         <GroupBox Header="Statistics" ToolTip="The statistical settings">
                             <StackPanel Orientation="Vertical" ToolTip="Specifies the statistical settings">
                                 <StackPanel Orientation="Horizontal" ToolTip="Specifies whether to output statistics">
-                                    <CheckBox Style="{StaticResource StyleParameterCheckBox}" Name="CheckBoxWriteStatistics" IsChecked="False">
+                                    <CheckBox Style="{StaticResource StyleParameterCheckBox}" Name="CheckBoxWriteStatistics" IsChecked="True">
                                         Write statistics to output folder after cancellation
                                     </CheckBox>
                                 </StackPanel>
@@ -406,8 +399,10 @@
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock Text="Instance: -" Style="{StaticResource StyleDescription}" Name="TextBlockHeatInstance"/>
                                     <TextBlock Text="Data: -" Style="{StaticResource StyleDescription}" Name="TextBlockHeatDataFile"/>
-                                    <TextBlock Text="Tile-size: -" Style="{StaticResource StyleDescription}" Name="TextBlockHeatDrawingInfoTileLength"/>
-                                    <TextBlock Text="Radius: -" Style="{StaticResource StyleDescription}" Name="TextBlockHeatDrawingInfoRadius"/>
+                                    <TextBlock Text="Config: -" Style="{StaticResource StyleDescription}" Name="TextBlockHeatConfig"/>
+                                    <Button Style="{StaticResource StyleGeneralButton}" Name="ButtonLoadHeatConfig" Click="ButtonLoadHeatConfig_Click" ToolTip="Sets the config for heat rendering">
+                                        <Image Style="{StaticResource StyleButtonImage}" Name="ImageLoadHeatConfig" Source="data/folder.png"></Image>
+                                    </Button>
                                     <Button Style="{StaticResource StyleGeneralButton}" Name="ButtonLoadHeatInstance" Click="ButtonLoadHeatInstance_Click" ToolTip="Sets the instance for heat rendering">
                                         <Image Style="{StaticResource StyleButtonImage}" Name="ImageLoadHeatInstance" Source="data/folder1.png"></Image>
                                     </Button>
@@ -434,20 +429,60 @@
                                     <CheckBox Style="{StaticResource StyleParameterCheckBox}" Name="CheckBoxHeatDrawPods" IsChecked="False" ToolTip="Specifies whether to draw the pods">
                                         DrawPods
                                     </CheckBox>
-                                    <CheckBox Style="{StaticResource StyleParameterCheckBox}" Name="CheckBoxHeatDrawStations" IsChecked="False" ToolTip="Specifies whether to draw the stations">
+                                    <CheckBox Style="{StaticResource StyleParameterCheckBox}" Name="CheckBoxHeatDrawStations" IsChecked="True" ToolTip="Specifies whether to draw the stations">
                                         DrawStations
                                     </CheckBox>
                                     <CheckBox Style="{StaticResource StyleParameterCheckBox}" Name="CheckBoxHeatDrawSemaphores" IsChecked="False" ToolTip="Specifies whether to draw the semaphores">
                                         DrawSemaphores
                                     </CheckBox>
                                 </StackPanel>
-                                <GroupBox Header="BotTasks">
-                                    <StackPanel x:Name="StackPanelHeatmapBotTasks" Orientation="Horizontal">
-                                    </StackPanel>
-                                </GroupBox>
+                                <RadioButton x:Name="VisualizeCongestion" Margin="5"  GroupName="Statistics to visualize"  IsChecked="True" >
+                                    <GroupBox Header="Congestion">
+                                        <StackPanel Orientation = "Horizontal">
+                                            <TextBlock Text="Min Velocity Threshold: " Style="{StaticResource StyleDescription}"/>
+                                            <Slider x:Name="SliderMinVelocityThreshold" Margin="2" VerticalAlignment="Center" Width="70" TickFrequency="0.05" IsSnapToTickEnabled="True" Value="0.4" Maximum="1" ValueChanged="SliderMinVelocityThreshold_ValueChanged"/>
+                                            <TextBox x:Name="TextBoxMinVelocityThreshold" Margin="2" VerticalAlignment="Center" Width="30" Text="{Binding Value, ElementName=SliderMinVelocityThreshold, UpdateSourceTrigger=PropertyChanged}" />
+                                            <TextBlock Text="Max Velocity threshold: " Style="{StaticResource StyleDescription}"/>
+                                            <Slider x:Name="SliderMaxVelocityThreshold" Margin="2" VerticalAlignment="Center" Width="70" TickFrequency="0.05" IsSnapToTickEnabled="True" Value="0.4" Maximum="1" ValueChanged="SliderMaxVelocityThreshold_ValueChanged"/>
+                                            <TextBox x:Name="TextBoxMaxVelocityThreshold" Margin="2" VerticalAlignment="Center" Width="30" Text="{Binding Value, ElementName=SliderMaxVelocityThreshold, UpdateSourceTrigger=PropertyChanged}" />
+                                        </StackPanel>
+                                    </GroupBox>
+                                </RadioButton>
+                               
+                                <RadioButton x:Name="VisualizeTasksAndStates" Margin="5"  GroupName="Statistics to visualize">
+                                 
+                                    <StackPanel Orientation = "Vertical">
+                                        <GroupBox Header="BotTasks">
+                                            <StackPanel x:Name="StackPanelHeatmapBotTasks" Orientation="Horizontal">
+                                            </StackPanel>
+                                        </GroupBox>
+                                        <GroupBox Header="BotStates">
+                                            <ScrollViewer HorizontalScrollBarVisibility="Visible">
+                                                <StackPanel x:Name="StackPanelHeatmapBotStates" Orientation="Horizontal">
+                                                </StackPanel>
+                                            </ScrollViewer>
+                                        </GroupBox>
+                                   </StackPanel>
+                                
+                                </RadioButton>
+                                <RadioButton x:Name="VisualizePickedItems" Margin="5"  GroupName="Statistics to visualize">
+
+                                    <GroupBox Header="Visualize picked items">
+                                        <StackPanel Orientation = "Horizontal">
+                                            <CheckBox Style="{StaticResource StyleParameterCheckBox}" Name="CheckBoxDrawPickersSeparated" IsChecked="False" ToolTip="Specifies whether to draw pickers mutually separated.">
+                                                Draw Pickers Separated (only for time window)
+                                            </CheckBox>
+                                        </StackPanel>
+                                    </GroupBox>
+                                </RadioButton>
+                                <RadioButton x:Name="VisualizeOrders" Margin="5"  GroupName="Statistics to visualize">
+                                    <GroupBox Header="Visualize orders">
+                                        Visualize orders
+                                    </GroupBox>
+                                </RadioButton>
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock Text="Opacity: " Style="{StaticResource StyleDescription}"/>
-                                    <Slider x:Name="SliderHeatOpacity" Margin="2" VerticalAlignment="Center" Width="70" TickFrequency="0.05" IsSnapToTickEnabled="True" Value="0.7" Maximum="1" ValueChanged="SliderHeatOpacity_ValueChanged" />
+                                    <Slider x:Name="SliderHeatOpacity" Margin="2" VerticalAlignment="Center" Width="70" TickFrequency="0.05" IsSnapToTickEnabled="True" Value="1" Maximum="1" ValueChanged="SliderHeatOpacity_ValueChanged" />
                                     <TextBox x:Name="TextBoxHeatOpacity" Margin="2" VerticalAlignment="Center" Width="30" Text="{Binding Value, ElementName=SliderHeatOpacity, UpdateSourceTrigger=PropertyChanged}" />
                                     <CheckBox Style="{StaticResource StyleParameterCheckBox}" Name="CheckBoxHeatDrawInBackground" IsChecked="False" ToolTip="Specifies whether to draw the heatmap behind the instance visualization or in front of it">
                                         InBackground
@@ -455,12 +490,12 @@
                                     <CheckBox Style="{StaticResource StyleParameterCheckBox}" Name="CheckBoxHeatTransparentCanvas" IsChecked="False" ToolTip="Specifies whether the canvas is transparent" Checked="CheckBoxHeatTransparentCanvas_Checked" Unchecked="CheckBoxHeatTransparentCanvas_Checked">
                                         Transparent canvas
                                     </CheckBox>
-                                    <CheckBox Style="{StaticResource StyleParameterCheckBox}" Name="CheckBoxHeatBichromaticColoring" IsChecked="False" ToolTip="Specifies whether to use bichromatic coloring instead of the rainbow version">
+                                    <CheckBox Style="{StaticResource StyleParameterCheckBox}" Name="CheckBoxHeatBichromaticColoring" IsChecked="True" ToolTip="Specifies whether to use bichromatic coloring instead of the rainbow version">
                                         Bichromatic coloring
                                     </CheckBox>
                                     <WrapPanel Style="{StaticResource StyleGeneratorElement}">
                                         <TextBlock Text="Low color: " Style="{StaticResource StyleDescription}"/>
-                                        <ComboBox Name="ComboBoxHeatmapColoringFirstColor" Margin="2" VerticalAlignment="Center" SelectedIndex="2" SelectedValuePath="Content" ToolTip="The low color for bichromatic coloring">
+                                        <ComboBox Name="ComboBoxHeatmapColoringFirstColor" Margin="2" VerticalAlignment="Center" SelectedIndex="1" SelectedValuePath="Content" ToolTip="The low color for bichromatic coloring">
                                             <ComboBoxItem>Transparent</ComboBoxItem>
                                             <ComboBoxItem>White</ComboBoxItem>
                                             <ComboBoxItem>Black</ComboBoxItem>
@@ -475,7 +510,7 @@
                                     </WrapPanel>
                                     <WrapPanel Style="{StaticResource StyleGeneratorElement}">
                                         <TextBlock Text="High color: " Style="{StaticResource StyleDescription}"/>
-                                        <ComboBox Name="ComboBoxHeatmapColoringSecondColor" Margin="2" VerticalAlignment="Center" SelectedIndex="0" SelectedValuePath="Content" ToolTip="The high color for bichromatic coloring">
+                                        <ComboBox Name="ComboBoxHeatmapColoringSecondColor" Margin="2" VerticalAlignment="Center" SelectedIndex="5" SelectedValuePath="Content" ToolTip="The high color for bichromatic coloring">
                                             <ComboBoxItem>Transparent</ComboBoxItem>
                                             <ComboBoxItem>White</ComboBoxItem>
                                             <ComboBoxItem>Black</ComboBoxItem>
@@ -491,28 +526,17 @@
                                 </StackPanel>
                                 <WrapPanel>
                                     <WrapPanel Style="{StaticResource StyleGeneratorElement}" ToolTip="The length of the time-window when generating step-wise heatmaps in seconds">
-                                        <TextBlock Text="Time window: " Style="{StaticResource StyleDescription}"/>
+                                        <TextBlock Text="Time window (seconds): " Style="{StaticResource StyleDescription}"/>
                                         <TextBox Style="{StaticResource StyleInputBox}" Width="50" Text="1200.0" Name="TextBoxHeatTimeWindowLength"/>
-                                    </WrapPanel>
-                                    <WrapPanel Style="{StaticResource StyleGeneratorElement}" ToolTip="The number of tiles used in x-dimension (tiles in y-dimension will get similar length)">
-                                        <CheckBox Style="{StaticResource StyleParameterCheckBox}" Name="CheckBoxHeatTileLengthCountSwitch" IsChecked="True" ToolTip="Specifies whether the tile count or tile length is used" Checked="CheckBoxHeatTileLengthCountSwitch_Checked" Unchecked="CheckBoxHeatTileLengthCountSwitch_Checked">
-                                            #Tiles (x):
-                                        </CheckBox>
-                                        <TextBox Style="{StaticResource StyleInputBox}" Width="30" Text="100" Name="TextBoxHeatTilesX" ToolTip="The number of tiles in x-dimension (tiles in y-dimension will get similar length)"/>
-                                        <TextBox Style="{StaticResource StyleInputBox}" Width="30" Text="0.2" Name="TextBoxHeatTileLengthX" Visibility="Collapsed" ToolTip="The length of a tile in x-dimension (tiles in y-dimension will get similar length)"/>
-                                    </WrapPanel>
-                                    <WrapPanel Style="{StaticResource StyleGeneratorElement}" ToolTip="The radius for filtering the datapoints relevant for a tile in instance units">
-                                        <TextBlock Text="Relative radius: " Style="{StaticResource StyleDescription}"/>
-                                        <TextBox Style="{StaticResource StyleInputBox}" Width="30" Text="4.0" Name="TextBoxHeatRadius"/>
+                                        <TextBlock Text="Radius multiplier: " Style="{StaticResource StyleDescription}"/>
+                                        <Slider x:Name="SliderRadiusMultiplier" Margin="2" VerticalAlignment="Center" Width="70" TickFrequency="0.05" IsSnapToTickEnabled="True" Value="1" Maximum="1" />
+                                        <TextBox x:Name="TextBoxRadiusMultiplier" Margin="2" VerticalAlignment="Center" Width="30" Text="{Binding Value, ElementName=SliderRadiusMultiplier, UpdateSourceTrigger=PropertyChanged}" />
                                     </WrapPanel>
                                     <CheckBox Style="{StaticResource StyleParameterCheckBox}" Name="CheckBoxHeatLogarithmic" IsChecked="True" ToolTip="Specifies whether to use a logarithmic scale for the values">
                                         Log-scale
                                     </CheckBox>
-                                    <CheckBox Style="{StaticResource StyleParameterCheckBox}" Name="CheckBoxHeatWeightByDistance" IsChecked="True" ToolTip="Specifies whether to weight the values of the datapoints by the distance to the tile center">
-                                        WeightByDistance
-                                    </CheckBox>
-                                    <CheckBox Style="{StaticResource StyleParameterCheckBox}" Name="CheckBoxHeatManhattan" IsChecked="False" ToolTip="Specifies whether to use the manhattan distance metric instead of the euclidean one">
-                                        Manhattan
+                                    <CheckBox Style="{StaticResource StyleParameterCheckBox}" Name="CheckBoxHeatSaveLegend" IsChecked="True" ToolTip="Specifies whether to save the legend">
+                                        SaveLegend
                                     </CheckBox>
                                 </WrapPanel>
                             </StackPanel>
@@ -578,8 +602,8 @@
         <!-- Info panel -->
         <TreeView Name="TreeViewInfoPanel" Grid.Column="4" Grid.RowSpan="4" Style="{StaticResource StyleInfoTreeView}" Visibility="Visible"/>
         <!-- Gridsplitter -->
-        <GridSplitter Name="GridSplitterBoxOutput"  Grid.Row="2" Grid.ColumnSpan="4" HorizontalAlignment="Stretch" VerticalAlignment="Top" ShowsPreview="true" ResizeDirection="Rows" ResizeBehavior="PreviousAndNext" Height="5" Visibility="Visible"/>
+        <GridSplitter Name="GridSplitterBoxOutput"  Grid.Row="2" Grid.ColumnSpan="4" HorizontalAlignment="Stretch" VerticalAlignment="Top" ShowsPreview="true" ResizeDirection="Rows" ResizeBehavior="PreviousAndNext" Height="0" Visibility="Collapsed"/>
         <!-- Log-Box -->
-        <TextBox Name="TextBoxOutput" Grid.Row="3" Grid.ColumnSpan="4" Style="{StaticResource StyleOutputBox}" ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Auto" FontFamily="Consolas" IsReadOnly="True" Visibility="Visible"/>
+        <TextBox Name="TextBoxOutput" Grid.Row="3" Grid.ColumnSpan="4" Style="{StaticResource StyleOutputBox}" ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Auto" FontFamily="Consolas" IsReadOnly="True" Visibility="Collapsed"/>
     </Grid>
 </Window>

@@ -30,6 +30,6 @@ namespace RAWSimO.Visualization.Rendering
         /// <summary>
         /// Specifies whether to draw wave
         /// </summary>
-        public bool DrawWave = true;
+        public bool DrawWave;
     }
 }

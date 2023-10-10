@@ -607,7 +607,7 @@ namespace RAWSimO.Core.Bots
         /// </summary>
         /// <param name="waypoint">Waypoint of the input pallet stand</param>
         /// <param name="timeDuration">Time it takes to get a pallet</param>
-        public BotGetPallet(Waypoint waypoint, double timeDuration = 54.37)
+        public BotGetPallet(Waypoint waypoint, double timeDuration = 30.0)
         {
             DestinationWaypoint = waypoint;
             actionDuration = timeDuration;
@@ -638,6 +638,8 @@ namespace RAWSimO.Core.Bots
             //check if action already started
             if (!actionStarted)
             {
+                if (self.Instance.SettingConfig.usingOptimizationClient)
+                    self.Instance.Controller.OptimizationClient.schedule.UpdateBotItemStatus(self.ID, 0);
                 startTime = currentTime;
                 actionStarted = true;
             }
@@ -647,7 +649,16 @@ namespace RAWSimO.Core.Bots
                 (self as BotNormal).StateQueueDequeue();
                 self.IgnoreInputPalletStandQueue = true; //reset the flag once the pallet is on
                 --DestinationWaypoint.InputPalletStand.IncomingBots;
+                if (self.Instance.SettingConfig.usingOptimizationClient)
+                {
+                    self.Instance.Controller.OptimizationClient.schedule.UpdateBotItemStatus(self.ID, 1);
+                    (self as BotNormal).doneWithInputStation = true;
+                    self.Instance.Controller.OrderManager.GetNewOrder(currentTime, self.ID);
+                }
             }
+            else if (self.Instance.SettingConfig.usingOptimizationClient)
+                self.Instance.Controller.OptimizationClient.schedule.UpdateBotItemStatus(
+                    self.ID, (currentTime - startTime) / actionDuration);
         }
         /// <summary>
         /// Time at which <see cref="Bot"/> started to get the pallet
@@ -673,7 +684,7 @@ namespace RAWSimO.Core.Bots
         /// </summary>
         /// <param name="waypoint">Waypoint of the output pallet stand</param>
         /// <param name="timeDuration">Time it takes to put a pallet</param>
-        public BotPutPallet(Waypoint waypoint, double timeDuration = 54.37)
+        public BotPutPallet(Waypoint waypoint, double timeDuration = 15.0)
         {
             DestinationWaypoint = waypoint;
             actionDuration = timeDuration;
@@ -701,12 +712,14 @@ namespace RAWSimO.Core.Bots
         /// <param name="currentTime">time of the current simulation tick</param>
         public void Act(Bot self, double lastTime, double currentTime)
         {
-
             //check if action already started
             if (!actionStarted)
             {
+             
                 startTime = currentTime;
                 actionStarted = true;
+                if (self.Instance.SettingConfig.usingOptimizationClient)
+                    self.Instance.Controller.OptimizationClient.schedule.UpdateBotItemStatus(self.ID, 0);
             }
             //check if action has been going for the required duration
             if (currentTime > startTime + actionDuration)
@@ -714,7 +727,37 @@ namespace RAWSimO.Core.Bots
                 (self as BotNormal).StateQueueDequeue();
                 self.IgnoreOutputPalletStandQueue = true; //reset the flag once the pallet is off
                 --DestinationWaypoint.OutputPalletStand.IncomingBots;
+                if (self.Instance.SettingConfig.usingOptimizationClient)
+                    self.Instance.Controller.OptimizationClient.schedule.UpdateBotItemStatus(self.ID, 0);
+                if (!self.Instance.SettingConfig.ExcludePalletStands)
+                {
+                    (self as BotNormal).doneWithOutputStation = true;
+                    if (self.Instance.Controller.OrderManager.PendingOrdersCount > 0 && self.Instance.SettingConfig.usingOptimizationClient)
+                    {
+                        Waypoint currentWaypoint = (self as BotNormal).CurrentWaypoint;
+
+                        var inputPalletStand = self.Instance.Controller.PalletStandManager.GetClosestInputPalletStandWaypoint(self as BotNormal, null);
+
+                        // go to closest input station
+                        //var inputPalletStand = (self as MovableStation).GetClosestInputPalletStandLocation(currentWaypoint);
+
+                        //if inputPalletStandWaypoint is null, use CurrentWaypoint
+                        inputPalletStand ??= currentWaypoint;
+
+                        //first visit input pallet stand and get the pallet
+                        (self as BotNormal).StateQueueEnqueue(new BotPrepareMoveToInputPalletStand());
+                        (self as BotNormal).AppendMoveStates(currentWaypoint, inputPalletStand);
+                        (self as BotNormal).StateQueueEnqueue(new BotGetPallet(inputPalletStand, self.Instance.SettingConfig.IPSPalletDuration));
+                    }
+                }
+
             }
+            else if (self.Instance.SettingConfig.usingOptimizationClient)
+            {
+                self.Instance.Controller.OptimizationClient.schedule.UpdateBotItemStatus(
+                    self.ID, (currentTime - startTime) / actionDuration);
+            }
+                
         }
         /// <summary>
         /// Time at which <see cref="Bot"/> started to drop the pallet
@@ -864,10 +907,15 @@ namespace RAWSimO.Core.Bots
 
     internal class RequestAssistance : IBotState
     {
-        public RequestAssistance(Waypoint waypoint)
+        public RequestAssistance(Waypoint waypoint, string item_address)
         {
             DestinationWaypoint = waypoint;
+            Address = item_address;
         }
+        /// <summary>
+        /// Item address for the assistance
+        /// </summary>
+        public string Address { get; set; }
         /// <summary>
         /// waypoint where assistence is required
         /// </summary>
@@ -886,6 +934,9 @@ namespace RAWSimO.Core.Bots
         {
             BotNormal bot = self as BotNormal;
             bot.Instance.Controller.MateScheduler.RequestAssistance(self, DestinationWaypoint, false);
+            if (bot.Instance.SettingConfig.usingOptimizationClient)
+                bot.Instance.Controller.OptimizationClient.schedule.AddNextAssignment(self.ID, DestinationWaypoint.ID, Address);
+
             bot.DequeueState(lastTime, currentTime);
         }
         /// <summary>
@@ -908,6 +959,25 @@ namespace RAWSimO.Core.Bots
         /// Gets state type
         /// </summary>
         public override BotStateType Type => BotStateType.MoveToAssist;
+        /// <summary>
+        /// indicates if bot is only in this state to break from full speed to zero and then change destination 
+        /// </summary>
+        new public bool IsBreaking { get; set; }
+    }
+
+    internal class MoveToPickUpItem : BotMove
+    {
+        public MoveToPickUpItem(Waypoint waypoint, bool isBreaking) : base(waypoint) { IsBreaking = isBreaking; }
+
+        /// <summary>
+        /// state name, used in drawing
+        /// </summary>
+        /// <returns>name</returns>
+        public override string ToString() { return "MoveToPickUpItem"; }
+        /// <summary>
+        /// Gets state type
+        /// </summary>
+        public override BotStateType Type => BotStateType.MoveToPickUpItem;
         /// <summary>
         /// indicates if bot is only in this state to break from full speed to zero and then change destination 
         /// </summary>
@@ -938,6 +1008,12 @@ namespace RAWSimO.Core.Bots
             bot.DequeueState(lastTime, currentTime);
             // if destination is changing, robot is automatically not in place
             bot.isInPlace = false;
+            // If destination changed multiple times in a row - delete all
+            // only the last one is executed
+            while (bot.StateQueuePeek().Type == BotStateType.ChangeDestination)
+            {
+                bot.DequeueState(lastTime, currentTime);
+            }
             // if moving
             if (bot.StateQueuePeek().Type == BotStateType.Move)
             {
@@ -986,6 +1062,12 @@ namespace RAWSimO.Core.Bots
             bot.DequeueState(lastTime, currentTime);
             // if destination is changing, robot is automatically not in place
             bot.isInPlace = false;
+            // If destination changed multiple times in a row - delete all
+            // only the last one is executed
+            while (bot.StateQueuePeek().Type == BotStateType.ChangeDestination)
+            {
+                bot.DequeueState(lastTime, currentTime);
+            }
             // if moving
             if (bot.StateQueuePeek().Type == BotStateType.Move)
             {
@@ -1031,7 +1113,25 @@ namespace RAWSimO.Core.Bots
                 // 1. add new move state
                 bot.PrependMoveStates(bot.CurrentWaypoint, DestinationWaypoint);
             }
-            else return;
+            else if (bot.StateQueuePeek().Type == BotStateType.RequestAssistance)
+            {
+                // store the request assistance state
+                RequestAssistance requestAssistanceState = (bot.StateQueuePeek() as RequestAssistance);
+                // remove request assistance state
+                bot.DequeueState(lastTime, currentTime);
+                // remove current move state
+                bot.DequeueState(lastTime, currentTime);
+                // add new move state
+                bot.PrependMoveStates(bot.CurrentWaypoint, DestinationWaypoint);
+                // return request assistance state
+                bot.StateQueueEnqueueFront(requestAssistanceState);
+            }
+            else
+            {
+                string msg = String.Format("ChangeDestination attempt failed for bot {0} with last state {1}", bot.ID, bot.CurrentInfoStateName);
+                Console.WriteLine(msg);
+                throw new NotSupportedException(msg);
+            }
         }
     }
 
@@ -1060,6 +1160,8 @@ namespace RAWSimO.Core.Bots
                 Initilized = true;
                 bot.isInPlace = true;
                 Instance.Controller.MateScheduler.UpdateArrivalTime(bot, bot.AssistantDestination, currentTime);
+                if (_self.Instance.SettingConfig.usingOptimizationClient)
+                    _self.Instance.Controller.OptimizationClient.schedule.UpdateBotItemStatus(_self.ID, 0);
             }
             //wait for mate to unlock
         }
@@ -1077,10 +1179,11 @@ namespace RAWSimO.Core.Bots
 
     internal class WaitForStation : IBotState
     {
-        public WaitForStation(Waypoint waypoint)
+        public WaitForStation(Waypoint waypoint, bool ready_to_pick=true)
         {
             DestinationWaypoint = waypoint;
             AssistStarted = false;
+            ReadyToPick = ready_to_pick;
         }
 
         public Waypoint DestinationWaypoint { get; set; }
@@ -1101,10 +1204,22 @@ namespace RAWSimO.Core.Bots
                 Ms = (Self.CurrentTask as AssistTask).BotToAssist as MovableStation;
                 Self.Instance.Controller.MateScheduler.UpdateMateArrivalTime(Ms, Self, DestinationWaypoint, currentTime);
                 Initilized = true;
+                if (Self.Instance.SettingConfig.usingOptimizationClient)
+                    Self.Instance.Controller.OptimizationClient.schedule.UpdatePickerXY(Self.ID, Self.X, Self.Y); ;
             }
             //if ms is in place and it's assistant is Self, then both at the needed location
             if (Ms.isInPlace && Ms.Assistant == Self && Ms.AssistantDestination == Self.CurrentWaypoint)
             {
+                if (!ReadyToPick)
+                {
+                    //if both picker and bot have arrived to access point picker needs to go fetch the items from the real picking location
+                    Self.DequeueState(lastTime, currentTime);
+                    Self.isInPlace = false;
+                    Self.DestinationWaypoint = null;
+                    if (Self.Instance.SettingConfig.usingOptimizationClient)
+                        Self.Instance.Controller.OptimizationClient.schedule.UpdatePickerItemStatus(Self.ID, 0);
+                    return;
+                }
                 //if assist process didn't start, start it
                 if (!AssistStarted)
                 {
@@ -1114,16 +1229,30 @@ namespace RAWSimO.Core.Bots
                       ((Ms.CurrentTask as MultiPointGatherTask).Times?.Count ?? 0) > 0)
                     {
                         var task = Ms.CurrentTask as MultiPointGatherTask;
-                        double duration = Ms.Instance.SettingConfig.AssistDuration;
-                        if (!Ms.Instance.SettingConfig.UseConstantAssistDuration)
-                          duration = task.Times[task.Locations.IndexOf(Self.CurrentWaypoint)];
+                        //double duration = Ms.Instance.SettingConfig.AssistDuration;
+                        //if (!Ms.Instance.SettingConfig.UseConstantAssistDuration)
+                        double duration = task.Times[Ms.SwarmState.currentAddress];
+                        string addr = Self.Instance.Controller.MateScheduler.GetBotCurrentItemAddress(Ms, DestinationWaypoint);
+                        if (Self.Instance.SettingConfig.RefillingEnabled)
+                        {
+                            duration = task.CopmupteTimeForItem(addr);
+                        }
+                        else
+                        {
+                            int quantityNeeded = task.NeededQuantities[addr];
+                            Ms.ProcessedQuantity += quantityNeeded;
+                        }
                         Self.SetAssistDuration(duration);
+                        if (!addr.Contains("Label")) Ms.StatNumberOfPickups++;
+                        else Ms.StatNumberOfPrinters++;
                     }
                     else
                     {
                         throw new Exception("assist time for a task is not defined");
                     }
                     Ms.NotifyAssistStarted(Self.AssistDuration, Self);
+                    if (Self.Instance.SettingConfig.usingOptimizationClient)
+                        Self.Instance.Controller.OptimizationClient.schedule.UpdatePickerItemStatus(Self.ID, 0);
                 }
                 // NOTE the program will only arrive at this 'if' statement
                 // if the robot (MovableStation) is in place and it is waiting
@@ -1132,6 +1261,17 @@ namespace RAWSimO.Core.Bots
                 if (AssistStarted && !double.IsNaN(AssistStartTime) &&
                    AssistStartTime + Self.AssistDuration < currentTime)
                 {
+                    if (Self.Instance.SettingConfig.usingOptimizationClient)
+                    {
+                        Self.Instance.Controller.OptimizationClient.schedule.UpdatePickerItemStatus(Self.ID, 1);
+                        Self.Instance.Controller.OptimizationClient.schedule.UpdateBotItemStatus(Ms.ID, 1);
+                    }
+
+                    string addr = Self.Instance.Controller.MateScheduler.GetBotCurrentItemAddress(Ms, DestinationWaypoint);
+                    MultiPointGatherTask mpgt = Ms.CurrentTask as MultiPointGatherTask;
+                    int quantityNeeded = mpgt.NeededQuantities[addr];
+                    int triesOfItemCollecting = mpgt.TriesOfItemCollecting[addr];
+                    double time = mpgt.Times[addr];
                     //notify assist end
                     Ms.OnAssistEnded(Self);
                     Self.OnAssistEnded();
@@ -1141,11 +1281,30 @@ namespace RAWSimO.Core.Bots
                     Self.isInPlace = false;
                     Self.DestinationWaypoint = null;
                     Ms.DequeueState(lastTime, currentTime);
+
                     if (Self.Instance.SettingConfig.UsingLocationManager)
                         Self.Instance.Controller.PathManager._locationManager.NotifyBotCompletedQueueing(Ms);
                     // robot ended queueing
                     // station is not in place anymore
                     Ms.isInPlace = false;
+                    if (Self.Instance.SettingConfig.usingOptimizationClient)
+                    {
+                        Self.Instance.Controller.OptimizationClient.schedule.RemoveAssignment(Self.ID);
+                        if (Ms.Instance.SettingConfig.reoptimizeEveryPickedItem)
+                            Ms.Instance.Controller.OrderManager.GetNewItem(currentTime, Ms.ID);
+                    }
+
+                    // handle quantity
+                    if (Self.Instance.SettingConfig.RefillingEnabled)
+                    {
+                        Ms.Instance.Controller.OrderManager.CheckForReplenishment(mpgt, Ms, quantityNeeded, triesOfItemCollecting, time, addr, DestinationWaypoint);
+                    }
+                }
+                else if (Self.Instance.SettingConfig.usingOptimizationClient)
+                {
+                    double completion_percentage = (currentTime - AssistStartTime) / Self.AssistDuration;
+                    Self.Instance.Controller.OptimizationClient.schedule.UpdatePickerItemStatus(Self.ID, completion_percentage);
+                    Self.Instance.Controller.OptimizationClient.schedule.UpdateBotItemStatus(Ms.ID, completion_percentage);
                 }
             }
         }
@@ -1167,6 +1326,10 @@ namespace RAWSimO.Core.Bots
         /// </summary>
         private bool Initilized { get; set; } = false;
         /// <summary>
+        /// bool indicating if picker is ready for picking
+        /// </summary>
+        private bool ReadyToPick { get; set; } = true;
+        /// <summary>
         /// 
         /// </summary>
         private MateBot Self { get; set; }
@@ -1179,7 +1342,7 @@ namespace RAWSimO.Core.Bots
     internal class PreparePartialTask : IBotState
     {
         public PreparePartialTask(BotNormal bot, Waypoint destination, string address, int palletGroup = -1, double maxWaitTime = 10)
-        {
+        { 
             DestinationWaypoint = destination;
             NoFreePosition = false;
             TimeoutDuration = maxWaitTime;
@@ -1188,6 +1351,8 @@ namespace RAWSimO.Core.Bots
             ClaimedRestingLocation = null;
             CurrentPalletGroup = palletGroup;
             Address = address;
+            OptimizationClient optClient = bot.Instance.Controller.OptimizationClient;
+            optClient.AddNewItem(bot.ID, address);
         }
         /// <summary>
         /// Current waypoint of a bot in PreparePartialTask state
@@ -1216,7 +1381,7 @@ namespace RAWSimO.Core.Bots
         /// <summary>
         /// Pod location address related to this partial task
         /// </summary>
-        public string Address { get; set; } 
+        public string Address { get; set; }
         /// <summary>
         /// Type of BotState
         /// </summary>
@@ -1233,6 +1398,7 @@ namespace RAWSimO.Core.Bots
             BotNormal bot = self as BotNormal;
             var rm = bot.Instance.ResourceManager;
             var lm = bot.Instance.Controller.PathManager._locationManager;
+            OptimizationClient optClient = bot.Instance.Controller.OptimizationClient;
 
             //define state filter which will be used
             Func<IBotState, bool> stateFilter;
@@ -1265,9 +1431,38 @@ namespace RAWSimO.Core.Bots
                 }
             }
 
+            if (bot.Instance.SettingConfig.usingOptimizationClient)
+            {
+                List<string> sortedAddresses = optClient.schedule.GetItemSchedule(bot.ID);
+                states.Sort(
+                    (IBotState a, IBotState b) =>
+                    {
+                    // if state not included, returns -1
+                    int ia = sortedAddresses.FindIndex(adr => adr == (a as PreparePartialTask).Address);
+                        int ib = sortedAddresses.FindIndex(adr => adr == (b as PreparePartialTask).Address);
+                        return ia > ib ? 1 : ia < ib ? -1 : 0;
+                    }
+                );
+                List<IBotState> tmp_states = new List<IBotState>();
+                if (states.Count > 0)
+                {
+                    IBotState first_state = states.First();
+                    tmp_states.Add(first_state);
+                    states = tmp_states;
+                }
+            }
+
             //go through all the states that are PreparePartialTask
             foreach (var state in states)
             {
+                // Skip state whose pod is currently refilling or if it is too early for printer.
+                if ((bot.Instance.SettingConfig.RefillingEnabled && state.Type == BotStateType.PreparePartialTask &&
+                     bot.Instance.GetWaypointFromAddress((state as PreparePartialTask).Address).Pod.IsRefilling)
+                     || (states.Count >= 2 && (state as PreparePartialTask).Address.StartsWith("Label_")))
+                {
+                    continue;
+                }
+    
                 if (bot.Instance.SettingConfig.UsingLocationManager)
                 {
 
@@ -1279,6 +1474,9 @@ namespace RAWSimO.Core.Bots
 
                     // remove this state, since it has been executed
                     bot.StateQueueRemove(state);
+                    if (bot.Instance.SettingConfig.usingOptimizationClient)
+                        optClient.RemoveItem(bot.ID, (state as PreparePartialTask).Address);
+
                     // set current pallet group
                     bot.SwarmState.currentPalletGroup = (state as PreparePartialTask).CurrentPalletGroup;
 
@@ -1289,10 +1487,10 @@ namespace RAWSimO.Core.Bots
                     bot.AssistantDestination = state.DestinationWaypoint;
 
                     // this will return previously set item address
-                    string adr = bot.Instance.Controller.MateScheduler.GetBotCurrentItemAddress(bot, state.DestinationWaypoint);
-
-                    if (MateScheduler.BotOrderInfo.GetPodLocked(adr) == -1)
-                        bot.Instance.Controller.MateScheduler.itemTable[bot.ID].UpdatePodLock(adr, bot.ID);
+                    string address = bot.Instance.Controller.MateScheduler.GetBotCurrentItemAddress(bot, state.DestinationWaypoint);
+ 
+                    if (MateScheduler.BotOrderInfo.GetPodLocked(address) == -1)
+                        bot.Instance.Controller.MateScheduler.itemTable[bot.ID].UpdatePodLock(address, bot.ID);
 
                     if (!bot.Instance.SettingConfig.BotsSelfAssist)
                     {
@@ -1301,14 +1499,16 @@ namespace RAWSimO.Core.Bots
                         // 2. Start moving to the destination
                         bot.PrependMoveStates(bot.CurrentWaypoint, botDestionation);
                         // 1. Request assistance immediately
-                        bot.StateQueueEnqueueFront(new RequestAssistance(bot.AssistantDestination));
+                        bot.StateQueueEnqueueFront(new RequestAssistance(bot.AssistantDestination, bot.SwarmState.currentAddress));
                     }
                     else
                     {
                         // 2. When arrived, start assisting 
                         bot.StateQueueEnqueueFront(new BotAssist(botDestionation, state.DestinationWaypoint));
-                        bot.Instance.Controller.MateScheduler.itemTable[bot.ID].AddPickingAddress(adr);
-                        bot.Instance.Controller.MateScheduler.itemTable[bot.ID].UpdateAssignedPicker(adr, bot.ID);
+                        bot.Instance.Controller.MateScheduler.itemTable[bot.ID].AddPickingAddress(address);
+                        bot.Instance.Controller.MateScheduler.itemTable[bot.ID].UpdateAssignedPicker(address, bot.ID);
+                        if (bot.Instance.SettingConfig.usingOptimizationClient)
+                            bot.Instance.Controller.OptimizationClient.schedule.UpdatePicker(bot.ID, bot.X, bot.Y, bot.CurrentWaypoint, bot.ID, address, -1);
                         // 1. Start moving to the destination
                         bot.PrependMoveStates(bot.CurrentWaypoint, botDestionation);
                     }
@@ -1335,6 +1535,8 @@ namespace RAWSimO.Core.Bots
 
                     // remove the state whose destinations can be locked
                     bot.StateQueueRemove(state);
+                    // remove also from the optimization client
+                    optClient.RemoveItem(bot.ID, (state as PreparePartialTask).Address);
                     // set current pallet group
                     bot.SwarmState.currentPalletGroup = (state as PreparePartialTask).CurrentPalletGroup;
                     // and current item address
@@ -1342,7 +1544,7 @@ namespace RAWSimO.Core.Bots
                     string adr = "";
                     // lock the position in the status table
                     if (bot.Instance.SettingConfig.BotsSelfAssist)
-                        adr = bot.Instance.Controller.MateScheduler.GetBotCurrentItemAddress(bot, BotDestination);
+                       adr = bot.Instance.Controller.MateScheduler.GetBotCurrentItemAddress(bot, BotDestination);
                     else
                         adr = bot.Instance.Controller.MateScheduler.GetBotCurrentItemAddress(bot, AssistantDestination);
                     bot.Instance.Controller.MateScheduler.itemTable[bot.ID].UpdatePodLock(adr, bot.ID);
@@ -1364,12 +1566,14 @@ namespace RAWSimO.Core.Bots
                         bot.StateQueueEnqueueFront(new BotAssist(BotDestination, AssistantDestination));
                         bot.Instance.Controller.MateScheduler.itemTable[bot.ID].AddPickingAddress(adr);
                         bot.Instance.Controller.MateScheduler.itemTable[bot.ID].UpdateAssignedPicker(adr, bot.ID);
+                        if (bot.Instance.SettingConfig.usingOptimizationClient)
+                            bot.Instance.Controller.OptimizationClient.schedule.UpdatePicker(bot.ID, bot.X, bot.Y, bot.CurrentWaypoint, bot.ID, adr, -1);
                     }
                     //request move from current location to the first location in a task
                     bot.PrependMoveStates(CurrentWaypoint, BotDestination);
                     //request assistant at location
                     if (!bot.Instance.SettingConfig.BotsSelfAssist)
-                        bot.StateQueueEnqueueFront(new RequestAssistance(AssistantDestination));
+                        bot.StateQueueEnqueueFront(new RequestAssistance(AssistantDestination, bot.SwarmState.currentAddress));
                     bot.AssistantDestination = AssistantDestination;
                     return;
                 }
@@ -1475,6 +1679,21 @@ namespace RAWSimO.Core.Bots
             //do not ignore the input pallet stand queue - go get the pallet
             self.IgnoreInputPalletStandQueue = false;
             (self as BotNormal).StateQueueDequeue();
+            Waypoint inputPalletStandWaypoint = self.Instance.Controller.PalletStandManager.GetClosestInputPalletStandWaypoint(self as BotNormal, null);
+            inputPalletStandWaypoint ??= self.CurrentWaypoint;
+
+            string inputPalletStandName = inputPalletStandWaypoint.InputPalletStand != null ? inputPalletStandWaypoint.InputPalletStand.ToString() : "WP_IPS_IS_NULL";
+
+
+            (self as BotNormal).SwarmState.currentAddress = inputPalletStandName;
+            (self as BotNormal).doneWithInputStation = false;
+            
+
+            if (self.Instance.SettingConfig.usingOptimizationClient)
+            {
+                self.Instance.Controller.OptimizationClient.schedule.UpdateBotItem(self.ID, inputPalletStandName);
+                self.Instance.Controller.OptimizationClient.schedule.UpdateBotItemStatus(self.ID, -1);
+            }
         }
     }
 
@@ -1513,15 +1732,25 @@ namespace RAWSimO.Core.Bots
             //self.Instance.Controller.MateScheduler.UpdateCurrentItem(self.ID, "#####", -1);
 
             //do not ignore the output pallet stand queue - go put the pallet
+            (self as BotNormal).doneWithInputStation = false;
             self.IgnoreOutputPalletStandQueue = false;
             (self as BotNormal).StateQueueDequeue();
 
-            Waypoint outputPalletStandWaypoint = (self as MovableStation).GetOutputPalletStandWaypoint();
+            Waypoint outputPalletStandWaypoint = self.Instance.Controller.PalletStandManager.GetOutputPalletStandWaypoint(self as BotNormal);
+            
+            //Waypoint outputPalletStandWaypoint = (self as MovableStation).GetOutputPalletStandWaypoint();
             //if outputPalletStandWaypoint is null, use last location of the task if it has any
             //if all fails, use current waypoint
             outputPalletStandWaypoint ??= self.CurrentWaypoint;
+            string outputPalletStandName = outputPalletStandWaypoint.OutputPalletStand != null ? outputPalletStandWaypoint.OutputPalletStand.ToString() : "WP_OPS_IS_NULL";
             (self as BotNormal).AppendMoveStates(self.CurrentWaypoint, outputPalletStandWaypoint);
-            (self as BotNormal).StateQueueEnqueue(new BotPutPallet(outputPalletStandWaypoint));
+            (self as BotNormal).StateQueueEnqueue(new BotPutPallet(outputPalletStandWaypoint, self.Instance.SettingConfig.OSPalletDuration));
+
+            if (self.Instance.SettingConfig.usingOptimizationClient)
+            {
+                self.Instance.Controller.OptimizationClient.schedule.UpdateBotItem(self.ID, outputPalletStandName);
+                self.Instance.Controller.OptimizationClient.schedule.UpdateBotItemStatus(self.ID, -1);
+            }
 
             if (!self.Instance.SettingConfig.BotsSelfAssist)
                 self.Instance.Controller.MateScheduler.NotifyBotGoingToOutputPalletStand(self);
@@ -1671,10 +1900,35 @@ namespace RAWSimO.Core.Bots
                 if (Self.CurrentTask is MultiPointGatherTask && ((Self.CurrentTask as MultiPointGatherTask).Times?.Count ?? 0) > 0)
                 {
                     MultiPointGatherTask task = Self.CurrentTask as MultiPointGatherTask;
-                    double duration = Self.Instance.SettingConfig.AssistDuration;
-                    if (!Self.Instance.SettingConfig.UseConstantAssistDuration)
-                        duration = task.Times[task.Locations.IndexOf(Self.AssistantDestination)];
+                    string address = Self.Instance.Controller.MateScheduler.GetBotCurrentItemAddress(Self, Self.AssistantDestination);
+                    //double duration = Self.Instance.SettingConfig.AssistDuration;
+                    //if (!Self.Instance.SettingConfig.UseConstantAssistDuration)
+                    double predictedPickerWalkTime = 0;
+                    if (Self.Instance.SettingConfig.MovePickersAroundAPs)
+                    {
+                        Waypoint itemWp = Self.Instance.GetWaypointFromAddress(address);
+                        // For walking distance take into account that picker walks from the item to the robot while picking.
+                        double predictedWalkingDistance = 2 * (Math.Abs(Self.AssistantDestination.X - itemWp.X) + Math.Abs(Self.AssistantDestination.Y - itemWp.Y));
+                        predictedPickerWalkTime = predictedWalkingDistance / Self.Instance.layoutConfiguration.MaxMateVelocity;
+                        Self.StatTotalAssistTime += predictedPickerWalkTime;
+                        Self.StatTotalPickerDistance += predictedWalkingDistance;
+                    }
+                    double duration = task.Times[Self.SwarmState.currentAddress] + predictedPickerWalkTime;
+
+                    // If refilling enabled, we should notify if item quantity has changed.
+                    if (Self.Instance.SettingConfig.RefillingEnabled)
+                    {
+                        duration = task.CopmupteTimeForItem(address) + predictedPickerWalkTime;
+                    }
+                    else
+                    {
+                        int quantityNeeded = task.NeededQuantities[address];
+                        Self.ProcessedQuantity += quantityNeeded;
+                    }
+
                     Self.SetAssistDuration(duration);
+                    if (!address.Contains("Label")) Self.StatNumberOfPickups++;
+                    else Self.StatNumberOfPrinters++;
                 }
                 else
                 {
@@ -1689,13 +1943,14 @@ namespace RAWSimO.Core.Bots
                 if ((Self.SwarmState.isSwitchingPallets && AssistStartTime + Self.AssistDuration + Self.Instance.SettingConfig.SwitchPalletDuration < currentTime) ||
                     (!Self.SwarmState.isSwitchingPallets && AssistStartTime + Self.AssistDuration < currentTime))
                 {
-                    var task = (MultiPointGatherTask) Self.CurrentTask;
+                    MultiPointGatherTask task = Self.CurrentTask as MultiPointGatherTask;
                     // reach the pod location of the current item (task)
-                    Waypoint podLocation = 
-                        task.PodLocations[task.Locations.FindIndex(l => l.ID == GoalWaypoint.ID)];
-                    // get the current item and updated the status in the order
-                    var item = task.LocationItemDictionary[podLocation].First();
-                    task.Order.CompleteLocation(item);
+                   
+                    string address = Self.Instance.Controller.MateScheduler.GetBotCurrentItemAddress(Self, GoalWaypoint);
+                    int quantityNeeded = task.NeededQuantities[address];
+                    int triesOfItemCollecting = task.TriesOfItemCollecting[address];
+                    double time = task.Times[address];
+
                     // NOTE: the following commented lines are done in OnAssistEnded()
                     //       when bot self assist is not used, but they don't work well
                     //       when used here
@@ -1718,12 +1973,101 @@ namespace RAWSimO.Core.Bots
                     //dequeue states and nullify task related variables
                     Self.DequeueState(lastTime, currentTime);
                     Self.isInPlace = false;
+
+                    // handle quantity
+                    if (Self.Instance.SettingConfig.RefillingEnabled)
+                    {
+                        Self.Instance.Controller.OrderManager.CheckForReplenishment(task, Self, quantityNeeded, triesOfItemCollecting, time, address, Self.AssistantDestination);
+                    }
                 }
 
             }
         }
     }
 
+    #endregion
+
+    #region Refill item state
+
+    internal class RefillItemState : IBotState
+    {
+        private double _timeSpan;
+        private bool _initialized = false;
+        private bool _alreadyRefilled = false;
+        private bool _stockRefillNeeded = true; // else refill stockCapacity (the capacity above the main pallet) 
+        public RefillItemState(Waypoint waypoint, double timeSpan, string address, bool stockRefillNeeded) 
+        { 
+            DestinationWaypoint = waypoint; 
+            _timeSpan = timeSpan; 
+            Address = address; 
+            _stockRefillNeeded = stockRefillNeeded; 
+        }
+
+        public Waypoint DestinationWaypoint { get; set; }
+        public string Address { get; set; }
+
+        public void Act(Bot self, double lastTime, double currentTime)
+        {
+            var bot = self as BotNormal;
+            bot.Address = Address;
+            // Initialize
+            if (!_initialized) { self.StatTotalStateCounts[Type]++; _initialized = true; }
+
+            //#RealWorldIntegration.start
+            if (bot.Instance.SettingConfig.RealWorldIntegrationCommandOutput && bot._lastExteriorState != Type)
+            {
+                // Log the pickup command
+                var sb = new StringBuilder();
+                sb.Append("#RealWorldIntegration => Bot ").Append(bot.ID).Append("RefillItemState");
+                bot.Instance.SettingConfig.LogAction(sb.ToString());
+                // Issue the pickup command
+                bot.Instance.RemoteController.RobotSubmitRestCommand(bot.ID);
+            }
+            //#RealWorldIntegration.end
+
+            // Remember the last state we were in
+            bot._lastExteriorState = Type;
+
+            // Randomly rest or exit resting
+            if (!_alreadyRefilled)
+            {
+                // Rest for a predefined period
+                bot.BlockedUntil = currentTime + _timeSpan;
+                bot.WaitUntil(bot.BlockedUntil);
+                _alreadyRefilled = true;
+                bot.Instance.GetWaypointFromAddress(Address).Pod.IsRefilling = true;
+                return;
+            }
+            else
+            {
+                bot.Instance.GetWaypointFromAddress(Address).Pod.IsRefilling = false;
+                // exit the resting
+                bot.DequeueState(lastTime, currentTime);
+                bot.LastRestLocation = DestinationWaypoint;
+                bot.Address = null;
+                if (_stockRefillNeeded)
+                {
+                    
+                    bot.Instance.RefillStockCapacityAtAddress(Address);
+                } else
+                {
+                    bot.Instance.RefillCapacityInUseAtAddress(Address);
+                }
+            }
+        }
+
+        /// <summary>
+        /// state name
+        /// </summary>
+        /// <returns>name</returns>
+        public override string ToString() { return "RefillItemState"; }
+
+        /// <summary>
+        /// State type.
+        /// </summary>
+        public BotStateType Type { get { return BotStateType.RefillItemState; } }
+
+    }
     #endregion
 
     /// <summary>
@@ -1772,6 +2116,10 @@ namespace RAWSimO.Core.Bots
         /// </summary>
         MoveToAssist,
         /// <summary>
+        /// indicates that the bot will move to pick up item and return
+        /// </summary>
+        MoveToPickUpItem,
+        /// <summary>
         /// indicates that the bot is waiting for MateBot
         /// </summary>
         WaitingForMate,
@@ -1800,9 +2148,13 @@ namespace RAWSimO.Core.Bots
         /// </summary>
         PrepareMoveToInputPalletStand,
         /// <summary>
-        /// indicates that the bot is preparing to move towards input pallet stand
+        /// indicates that the bot is preparing to move towards output pallet stand
         /// </summary>
         PrepareMoveToOutputPalletStand,
+        /// <summary>
+        /// indicates that the bot is preparing to move towards label stand
+        /// </summary>
+        BotPrepareMoveToLabelStand,
         /// <summary>
         /// indicates that the bot is waiting for see-off scheduling assistance
         /// </summary>
@@ -1822,6 +2174,10 @@ namespace RAWSimO.Core.Bots
         /// <summary>
         /// Aborts the current move to and wait for mate mission
         /// </summary>
-        AbortMoveToAndWait
+        AbortMoveToAndWait,
+        /// <summary>
+        /// Refilling items
+        /// </summary>
+        RefillItemState
     }
 }

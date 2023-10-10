@@ -1,4 +1,5 @@
-﻿using RAWSimO.Core.Control;
+﻿using RAWSimO.Core.Bots;
+using RAWSimO.Core.Control;
 using RAWSimO.Core.Elements;
 using RAWSimO.Core.Interfaces;
 using RAWSimO.Core.IO;
@@ -28,7 +29,7 @@ namespace RAWSimO.Core.Statistics
         /// <summary>
         /// States the difference in simulation time between two position polls.
         /// </summary>
-        public const double STEP_LENGTH_POSITION_POLL = 20;
+        public const double STEP_LENGTH_POSITION_POLL = 10; 
         /// <summary>
         /// States the difference in simulation time between two position polls when in intense measuring mode.
         /// </summary>
@@ -758,10 +759,35 @@ namespace RAWSimO.Core.Statistics
                 // Add current locations
                 _logLocationPolling.AddRange(
                     _instance.Bots.Select(b =>
-                        new LocationDatapoint() { X = b.X, Y = b.Y, TimeStamp = currentTime - _instance.StatTimeStart, Tier = b.Tier.ID, BotTask = b.CurrentTask.Type }));
+                    {
+                        List<(double x, double y, double velocity)> movingSlowlyPositions = new List<(double x, double y, double velocity)>();
+                        if (b is MovableStation)
+                        {
+                            foreach ((Waypoint wp, double time, double velocity) data in (b as MovableStation).SlowMovementWaypoints)
+                            {
+                                movingSlowlyPositions.Add((data.wp.X, data.wp.Y, data.velocity));
+                            }
+                            (b as MovableStation).SlowMovementWaypoints.Clear();
+                        }
+                        return new LocationDatapoint()
+                        {
+                            X = b.X,
+                            Y = b.Y,
+                            TimeStamp = currentTime - _instance.StatTimeStart,
+                            Tier = b.Tier.ID,
+                            BotTask = b.CurrentTask.Type,
+                            BotState = (b is BotNormal) ? (b as BotNormal).CurrentBotStateType : BotStateType.NullState,
+                            BotId = b.ID,
+                            OrderId = b.CurrentTask.Type == BotTaskType.MultiPointGatherTask ? (b.CurrentTask as MultiPointGatherTask).Order.ID : -1,
+                            MovingSlowlyPositions = movingSlowlyPositions
+                        };
+                    }
+                    ));
                 // Flush on getting too big
                 if (_logLocationPolling.Count >= Instance.STAT_MAX_DATA_POINTS)
+                {
                     FlushLocationsPolled();
+                }   
             }
             // Monitor storage location info
             if (currentTime >= _nextSnapshotStorageLocationInfoPolling)

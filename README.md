@@ -1,3 +1,9 @@
+# Case picking simulation quick start
+
+Open RAWSimO.sln with Visual Studio and select RAWSimO.Visualization as the project to execute with Debug and x64 configuration. This will open the application window.
+
+In the application window, under the "Instances" tab, press the checkmark button to generate a default instance. Then go to the "Base Controls" tab and press the play button.
+
 # RAWSim-O
 
 RAWSim-O is a discrete event-based simulation for Robotic Mobile Fulfillment Systems. The intention of the simulation framework is to provide a tool for researching effects of multiple decision problems that occur when running such a system. For this, the framework enables easy extensibility for implementing new decision methods for the different decision problems.
